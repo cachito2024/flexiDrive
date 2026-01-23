@@ -1,0 +1,28 @@
+// validations/authValidation.js
+import { z } from 'zod';
+
+export const registroSchema = z.object({
+  nombre: z.string().min(2, "El nombre debe tener al menos 2 letras"),
+  email: z.string().email("El formato del email no es válido"),
+  password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
+  dni: z.number().positive("El DNI debe ser un número positivo"),
+  fecha_nacimiento: z.string().or(z.date()), // Acepta string de fecha o fecha
+  rol: z.string().min(1, "El rol es obligatorio")
+});
+
+export const loginSchema = z.object({
+  email: z.string().email("Formato de email inválido"),
+  password: z.string().min(1, "La contraseña es requerida")
+});
+
+
+// Esquema para acciones que solo requieren el ID de usuario (Enable y Reset)
+export const userIdSchema = z.object({
+  userId: z.string().length(24, "El ID de usuario debe ser un ID válido de MongoDB (24 caracteres)")
+});
+
+// Esquema para confirmar el TOTP
+export const confirmTotpSchema = z.object({
+  userId: z.string().length(24, "ID inválido"),
+  codigoIngresado: z.string().length(6, "El código debe ser de 6 dígitos")
+});
