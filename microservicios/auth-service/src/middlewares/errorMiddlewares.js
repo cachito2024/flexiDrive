@@ -1,4 +1,6 @@
 // src/middlewares/errorMiddlewares.js
+
+
 export const errorHandler = (err, req, res, next) => {
   // 1. Log del error para el desarrollador (vos)
   console.error("❌ Error capturado:", err);

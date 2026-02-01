@@ -4,9 +4,11 @@ import {
   verifyTotp as verifyTotpService,
   enableTotp as enableTotpService,
   confirmTotp as confirmTotpService,
-  resetTotp as resetTotpService
+  resetTotp as resetTotpService, 
+  googleLoginService
 } from '../services/authService.js';
-import { registroSchema, loginSchema, userIdSchema, confirmTotpSchema } from '../validations/authValidations.js';
+import { registroSchema, loginSchema, userIdSchema, confirmTotpSchema, updateProfileSchema} from '../validations/authValidations.js';
+import Usuario from '../models/userModel.js';
 
 export const register = async (req, res, next) => {
   try {
@@ -18,23 +20,7 @@ export const register = async (req, res, next) => {
   }
 };
 
-/* 
-export const login = async (req, res, next) => {
-  try {
-    // 1. Validamos formato (SOLO email y password según tu loginSchema)
-    loginSchema.parse(req.body);
 
-    // 2. Llamamos al servicio (aquí es donde se busca en la DB y se obtiene el ID)
-    const result = await loginUser(req.body);
-
-    // 3. Enviamos la respuesta (que ya incluye el usuarioId generado por el server)
-    return res.status(200).json(result);
-    
-  } catch (err) {
-    // Si Zod falla o las credenciales son malas, viene aquí
-    return next(err); 
-  }
-}; */
 export const login = async (req, res, next) => {
   try {
     loginSchema.parse(req.body);
@@ -97,5 +83,51 @@ export const resetTotp = async (req, res, next) => {
     return res.status(200).json(result);
   } catch (err) { 
     return next(err); 
+  }
+};
+
+export const googleLogin = async (req, res, next) => {
+  try {
+    const { idToken } = req.body; // Esto es lo que mandará el Front
+    if (!idToken) throw new Error("Falta el idToken de Google");
+
+    const result = await googleLoginService(idToken);
+    return res.status(200).json(result);
+  } catch (err) {
+    return next(err);
+  }
+};
+
+
+
+export const updateProfile = async (req, res, next) => {
+  try {
+    // 1. Validamos los datos que vienen del Front
+    const datosValidados = updateProfileSchema.parse(req.body);
+    
+    const userId = req.userId; // Viene del authMiddleware
+
+    // 2. Usamos los datos ya validados por Zod
+    const usuarioActualizado = await Usuario.findByIdAndUpdate(
+      userId,
+      datosValidados, 
+      { new: true }
+    );
+
+    if (!usuarioActualizado) {
+        throw new Error("Usuario no encontrado");
+    }
+
+    res.status(200).json({
+      message: "Perfil completado con éxito",
+      usuario: {
+          nombre: usuarioActualizado.nombre,
+          dni: usuarioActualizado.dni,
+          rol: usuarioActualizado.rol
+      }
+    });
+  } catch (error) {
+    // Si Zod falla, este 'next' lo manda directo a tu errorHandler
+    next(error);
   }
 };

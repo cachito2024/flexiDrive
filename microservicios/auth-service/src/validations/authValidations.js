@@ -26,3 +26,25 @@ export const confirmTotpSchema = z.object({
   userId: z.string().length(24, "ID inválido"),
   codigoIngresado: z.string().length(6, "El código debe ser de 6 dígitos")
 });
+
+
+export const updateProfileSchema = z.object({
+  dni: z
+    .number({ invalid_type_error: "El DNI debe ser un número" })
+    .min(1000000, "DNI demasiado corto")
+    .max(99999999, "DNI demasiado largo"),
+  
+  fecha_nacimiento: z
+    .string()
+    .refine((fecha) => !isNaN(Date.parse(fecha)), {
+      message: "Fecha de nacimiento inválida",
+    })
+    .transform((fecha) => new Date(fecha))
+    .refine((fecha) => fecha < new Date(), {
+      message: "La fecha de nacimiento no puede ser futura",
+    }),
+
+  rol: z.enum(['cliente', 'comisionista'], {
+    errorMap: () => ({ message: "El rol debe ser 'cliente' o 'comisionista'" }),
+  }),
+});
