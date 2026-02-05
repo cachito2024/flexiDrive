@@ -4,9 +4,14 @@ import {
   verifyTotp as verifyTotpService,
   enableTotp as enableTotpService,
   confirmTotp as confirmTotpService,
-  resetTotp as resetTotpService
+  resetTotp as resetTotpService, 
+  googleLoginService, completeComisionistaService
 } from '../services/authService.js';
-import { registroSchema, loginSchema, userIdSchema, confirmTotpSchema } from '../validations/authValidations.js';
+import { registroSchema, loginSchema, userIdSchema, confirmTotpSchema, updateProfileSchema, completeComisionistaSchema } from '../validations/authValidations.js';
+import Usuario from '../models/userModel.js';
+import UsuarioRol from '../models/userRoleModel.js';
+import Rol from '../models/roleModel.js';
+import Comisionista from '../models/comisionistaModel.js';
 
 export const register = async (req, res, next) => {
   try {
@@ -18,23 +23,7 @@ export const register = async (req, res, next) => {
   }
 };
 
-/* 
-export const login = async (req, res, next) => {
-  try {
-    // 1. Validamos formato (SOLO email y password según tu loginSchema)
-    loginSchema.parse(req.body);
 
-    // 2. Llamamos al servicio (aquí es donde se busca en la DB y se obtiene el ID)
-    const result = await loginUser(req.body);
-
-    // 3. Enviamos la respuesta (que ya incluye el usuarioId generado por el server)
-    return res.status(200).json(result);
-    
-  } catch (err) {
-    // Si Zod falla o las credenciales son malas, viene aquí
-    return next(err); 
-  }
-}; */
 export const login = async (req, res, next) => {
   try {
     loginSchema.parse(req.body);
@@ -97,5 +86,133 @@ export const resetTotp = async (req, res, next) => {
     return res.status(200).json(result);
   } catch (err) { 
     return next(err); 
+  }
+};
+
+export const googleLogin = async (req, res, next) => {
+  try {
+    const { idToken } = req.body; // Esto es lo que mandará el Front
+    if (!idToken) throw new Error("Falta el idToken de Google");
+
+    const result = await googleLoginService(idToken);
+    return res.status(200).json(result);
+  } catch (err) {
+    return next(err);
+  }
+};
+
+
+
+/* export const updateProfile = async (req, res, next) => {
+  try {
+    // 1. Validamos los datos que vienen del Front
+    const datosValidados = updateProfileSchema.parse(req.body);
+    
+    const userId = req.userId; // Viene del authMiddleware
+
+    // 2. Usamos los datos ya validados por Zod
+    const usuarioActualizado = await Usuario.findByIdAndUpdate(
+      userId,
+      datosValidados, 
+      { new: true }
+    );
+
+    if (!usuarioActualizado) {
+        throw new Error("Usuario no encontrado");
+    }
+
+    res.status(200).json({
+      message: "Perfil completado con éxito",
+      usuario: {
+          nombre: usuarioActualizado.nombre,
+          dni: usuarioActualizado.dni,
+          rol: usuarioActualizado.rol
+      }
+    });
+  } catch (error) {
+    // Si Zod falla, este 'next' lo manda directo a tu errorHandler
+    next(error);
+  }
+}; */
+
+export const updateProfile = async (req, res, next) => {
+  try {
+    // 1. Validamos los datos con Zod (dni, fecha_nacimiento, rol)
+    const { dni, fecha_nacimiento, rol } = updateProfileSchema.parse(req.body);
+    
+    const userId = req.userId; // Extraído del authMiddleware
+
+    // 2. Actualizamos datos básicos en la colección de Usuario
+    const usuarioActualizado = await Usuario.findByIdAndUpdate(
+      userId,
+      { dni, fecha_nacimiento },
+      { new: true }
+    );
+
+    if (!usuarioActualizado) {
+      throw new Error("Usuario no encontrado");
+    }
+
+    // 3. Verificamos que el rol exista en la DB (para obtener el _id correcto)
+    const rolDB = await Rol.findById(rol);
+    if (!rolDB) {
+      throw new Error("El rol seleccionado no es válido");
+    }
+
+    // 4. Guardamos la relación en la tabla 'usuarioxrol'
+    // El upsert hace que si no existe la relación (caso Google), la cree.
+    await UsuarioRol.findOneAndUpdate(
+      { usuarioId: userId },
+      { rolId: rolDB._id },
+      { upsert: true, new: true }
+    );
+
+    // 5. Si el rol es 'comisionista', creamos su perfil específico si no existe
+    if (String(rolDB._id) === 'comisionista') {
+      const existeComisionista = await Comisionista.findOne({ usuarioId: userId });
+      if (!existeComisionista) {
+        await Comisionista.create({
+          usuarioId: userId,
+          verificado: false
+          // Los campos cuil, alias y cbu se llenarán después
+        });
+        console.log(`✅ Perfil de comisionista creado para: ${userId}`);
+      }
+    }
+
+    // 6. Respuesta final exitosa
+    res.status(200).json({
+      message: "Perfil y Rol completados con éxito",
+      usuario: {
+        id: usuarioActualizado._id,
+        nombre: usuarioActualizado.nombre,
+        dni: usuarioActualizado.dni,
+        rol: rolDB._id
+      }
+    });
+
+  } catch (error) {
+    // Cualquier error (de Zod o de DB) cae aquí y va a tu errorHandler
+    next(error);
+  }
+};
+
+export const updateComisionistaData = async (req, res, next) => {
+  try {
+    // 1. Validamos los campos con el esquema que ya tenés
+    const datosValidados = completeComisionistaSchema.parse(req.body);
+    
+    // 2. El ID viene del token (authMiddleware)
+    const userId = req.userId; 
+
+    // 3. Llamamos al servicio (Importante: pasamos los datos limpios)
+    const result = await completeComisionistaService(userId, datosValidados);
+
+    return res.status(200).json({
+      message: "Datos bancarios actualizados correctamente",
+      comisionista: result
+    });
+  } catch (err) {
+    return next(err);
   }
 };
