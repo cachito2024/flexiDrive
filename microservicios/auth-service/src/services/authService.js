@@ -65,6 +65,31 @@ export const registerUser = async (data) => {
   return { message: 'Usuario creado correctamente', usuarioId: usuario._id, otpauthUrl };
 };
 
+// Función interna de utilidad para chequear el estado real del usuario
+const checkUserProfile = async (userId) => {
+  const usuario = await Usuario.findById(userId);
+  
+  // 1. Datos básicos
+  const tieneDatosBasicos = !!(usuario.dni && usuario.fecha_nacimiento);
+
+  // 2. Rol (Buscamos en la tabla oficial 'usuarioxrol')
+  const relacionRol = await UsuarioRol.findOne({ usuarioId: userId });
+  const tieneRol = !!relacionRol;
+
+  // 3. Si es comisionista, chequeamos sus datos bancarios
+  let datosComisionistaCompletos = false;
+  if (relacionRol && relacionRol.rolId === 'comisionista') {
+    const comi = await Comisionista.findOne({ usuarioId: userId });
+    datosComisionistaCompletos = !!(comi?.alias && comi?.cuil && comi?.cbu);
+  }
+
+  return {
+    perfilCompleto: tieneDatosBasicos && tieneRol,
+    datosComisionistaCompletos,
+    rol: relacionRol ? relacionRol.rolId : 'pendiente'
+  };
+};
+
 // Login de usuario (Paso 1)
 export const loginUser = async ({ email, password }) => {
   const usuario = await Usuario.findOne({ email });
@@ -109,7 +134,7 @@ export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
     secret: usuario.totpSecret,
     encoding: 'base32',
     token: String(codigoIngresado).trim(),
-    window: 2 // Un margen razonable de 1 minuto
+    window: 6 // Un margen razonable de 1 minuto
   });
 
   if (!verified) throw new Error('Código TOTP inválido');
@@ -117,10 +142,15 @@ export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
   // 4. ÉXITO: Generamos el token de sesión definitivo
   const token = generarTokenSesion({ userId: usuario._id });
 
+  // LLAMAMOS AL MISMO CHEQUEO MAESTRO ACÁ TAMBIÉN
+  const estadoPerfil = await checkUserProfile(usuario._id);
+
   return {
     message: 'Login exitoso',
-    token, // Este es el pase de 24hs
+    token,
+    ...estadoPerfil, // Este es el pase de 24hs
     usuario: {
+      id: usuario._id,
       nombre: usuario.nombre,
       email: usuario.email
     }
@@ -288,18 +318,40 @@ export const googleLoginService = async (idToken) => {
   // 3. Generamos el token de sesión nuestro (el de 24hs)
   const token = generarTokenSesion({ userId: usuario._id });
 
-  // 4. Chequeamos si faltan datos obligatorios para Flexi Drive
- const perfilCompleto = !!(usuario.dni && usuario.fecha_nacimiento && (usuario.rol === 'cliente' || usuario.rol === 'comisionista'));
+  // LLAMAMOS AL CHEQUEO MAESTRO
+  const estadoPerfil = await checkUserProfile(usuario._id);
+
+ /*  // 4. Chequeamos si faltan datos obligatorios para Flexi Drive
+ const perfilCompleto = !!(usuario.dni && usuario.fecha_nacimiento && (usuario.rol === 'cliente' || usuario.rol === 'comisionista')); */
 
   return {
     token,
-    perfilCompleto,
-    usuario: {
+    ...estadoPerfil,
+       usuario: {
       id: usuario._id,
       nombre: usuario.nombre,
       apellido: usuario.apellido,
-      email: usuario.email,
-      rol: usuario.rol || "pendiente"
+      email: usuario.email
     }
   };
+};
+
+
+// SERVICIO PARA ACTUALIZAR DATOS BANCARIOS (CBU, CUIL, ALIAS)
+export const completeComisionistaService = async (userId, data) => {
+  // data ya viene validado por Zod desde el controller
+  const actualizado = await Comisionista.findOneAndUpdate(
+    { usuarioId: userId },
+    { ...data },
+    { new: true, 
+      upsert: true, // Si no existe, lo crea
+      runValidators: true // Esto asegura que Zod y Mongoose trabajen juntos
+    }
+  );
+
+  if (!actualizado) {
+    throw new Error("No se encontró el perfil de comisionista para este usuario");
+  }
+
+  return actualizado;
 };

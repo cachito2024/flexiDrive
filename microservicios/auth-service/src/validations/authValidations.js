@@ -48,3 +48,9 @@ export const updateProfileSchema = z.object({
     errorMap: () => ({ message: "El rol debe ser 'cliente' o 'comisionista'" }),
   }),
 });
+
+export const completeComisionistaSchema = z.object({
+  alias: z.string().min(3, "El alias es muy corto"),
+  cuil: z.string().regex(/^\d{2}-\d{8}-\d{1}$/, "Formato de CUIL inválido (ej: 20-41411299-9)"),
+  cbu: z.string().length(22, "El CBU debe tener exactamente 22 dígitos").regex(/^\d+$/, "El CBU solo debe contener números")
+});
