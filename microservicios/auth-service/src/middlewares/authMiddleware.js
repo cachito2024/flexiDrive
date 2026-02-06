@@ -1,4 +1,6 @@
 import jwt from 'jsonwebtoken';
+import Usuario from '../models/userModel.js';
+import UsuarioRol from '../models/userRoleModel.js'; // Asegurate de importar el modelo de la relación
 
 export const authMiddleware = (req, res, next) => {
   // 1. Buscamos el token en el header Authorization
@@ -20,5 +22,27 @@ export const authMiddleware = (req, res, next) => {
     next(); // Seguimos al controlador
   } catch (error) {
     return res.status(401).json({ error: "Token inválido o expirado" });
+  }
+};
+
+export const isAdmin = async (req, res, next) => {
+  try {
+    // BUSCAMOS EN LA TABLA INTERMEDIA
+    const relacion = await UsuarioRol.findOne({ 
+      usuarioId: req.userId, 
+      rolId: 'admin' // Como tu ID es el string 'admin', buscamos así
+    });
+
+    console.log('Relación encontrada:', relacion);
+
+    if (!relacion) {
+      return res.status(403).json({ 
+        message: "Acceso denegado. Se requieren permisos de administrador." 
+      });
+    }
+
+    next(); // Si existe la relación con 'admin', pasa
+  } catch (error) {
+    next(error);
   }
 };

@@ -78,11 +78,17 @@ const checkUserProfile = async (userId) => {
 
   // 3. Si es comisionista, chequeamos sus datos bancarios
   let datosComisionistaCompletos = false;
-  if (relacionRol && relacionRol.rolId === 'comisionista') {
-    const comi = await Comisionista.findOne({ usuarioId: userId });
-    datosComisionistaCompletos = !!(comi?.alias && comi?.cuil && comi?.cbu);
-  }
-
+ if (relacionRol && relacionRol.rolId === 'comisionista') {
+  const comi = await Comisionista.findOne({ usuarioId: userId });
+  // Ahora chequeamos que tenga TODO: datos bancarios + fotos del DNI
+  datosComisionistaCompletos = !!(
+    comi?.alias && 
+    comi?.cbu && 
+    comi?.cuit && 
+    comi?.dniFrenteUrl && 
+    comi?.dniDorsoUrl
+  );
+}
   return {
     perfilCompleto: tieneDatosBasicos && tieneRol,
     datosComisionistaCompletos,
@@ -138,9 +144,12 @@ export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
   });
 
   if (!verified) throw new Error('Código TOTP inválido');
+  // --- OJO ACÁ: BUSCAMOS EL ROL PARA METERLO EN EL TOKEN ---
+  const relacion = await UsuarioRol.findOne({ usuarioId: usuario._id });
+  const miRol = relacion ? relacion.rolId : 'cliente'; // Default por las dudas
 
   // 4. ÉXITO: Generamos el token de sesión definitivo
-  const token = generarTokenSesion({ userId: usuario._id });
+  const token = generarTokenSesion({ userId: usuario._id, rol: miRol });
 
   // LLAMAMOS AL MISMO CHEQUEO MAESTRO ACÁ TAMBIÉN
   const estadoPerfil = await checkUserProfile(usuario._id);
@@ -149,6 +158,7 @@ export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
     message: 'Login exitoso',
     token,
     ...estadoPerfil, // Este es el pase de 24hs
+    rol: miRol, // Se lo devolvemos al Front también
     usuario: {
       id: usuario._id,
       nombre: usuario.nombre,
@@ -337,7 +347,7 @@ export const googleLoginService = async (idToken) => {
 };
 
 
-// SERVICIO PARA ACTUALIZAR DATOS BANCARIOS (CBU, CUIL, ALIAS)
+/* // SERVICIO PARA ACTUALIZAR DATOS BANCARIOS (CBU, CUIL, ALIAS)
 export const completeComisionistaService = async (userId, data) => {
   // data ya viene validado por Zod desde el controller
   const actualizado = await Comisionista.findOneAndUpdate(
@@ -351,6 +361,32 @@ export const completeComisionistaService = async (userId, data) => {
 
   if (!actualizado) {
     throw new Error("No se encontró el perfil de comisionista para este usuario");
+  }
+
+  return actualizado;
+}; */
+
+export const completeComisionistaService = async (userId, data) => {
+  // data incluye: entidadBancaria, nroCuenta, tipoCuenta, alias, cbu, cuit, dniFrenteUrl, dniDorsoUrl
+  
+  const actualizado = await Comisionista.findOneAndUpdate(
+    { usuarioId: userId },
+    { 
+      ...data,
+      // Forzamos que el usuarioId esté siempre presente en caso de que sea un 'upsert' (creación)
+      usuarioId: userId 
+    },
+    { 
+      new: true, 
+      upsert: true, // Si no existe el registro en la tabla 'comisionista', lo crea ahora
+      runValidators: true // Valida contra el Schema de Mongoose
+    }
+  );
+
+  // Con upsert: true, es muy difícil que 'actualizado' sea null, 
+  // pero lo dejamos por seguridad.
+  if (!actualizado) {
+    throw new Error("No se pudo procesar el perfil del comisionista.");
   }
 
   return actualizado;
