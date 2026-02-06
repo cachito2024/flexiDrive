@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData} from '../controllers/authControllers.js';
-import { authMiddleware } from '../middlewares/authMiddleware.js'; // <-- Importalo acá
+import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData, approveComisionista} from '../controllers/authControllers.js';
+import { authMiddleware, isAdmin } from '../middlewares/authMiddleware.js'; // <-- Importalo acá
+import { upload } from '../middlewares/uploadMiddleware.js'; // <-- 1. Importá el middleware de subida
 const router = Router();
 
 router.post('/register', register);
@@ -15,6 +16,13 @@ router.post('/reset-totp', resetTotp); // <--- Botón "Perdí mi TOTP"
 router.post('/google', googleLogin);
 router.put('/update-profile', authMiddleware, updateProfile); // Protegida con token
 
-router.put('/complete-comisionista', authMiddleware, updateComisionistaData);
+router.put('/complete-comisionista', authMiddleware, 
+    upload.fields([
+    { name: 'dniFrente', maxCount: 1 },
+    { name: 'dniDorso', maxCount: 1 }
+  ]), updateComisionistaData);
 
+
+  // Ruta para que el admin apruebe (después de mirar las fotos)
+router.patch('/approve-comisionista', authMiddleware, isAdmin, approveComisionista);
 export default router;

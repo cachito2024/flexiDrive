@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path'; // <--- Agregá este import
 
 import authRoutes from './routes/authRoutes.js';
 // 1. IMPORTA EL MIDDLEWARE (asegúrate de que la ruta sea correcta)
@@ -15,6 +16,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// --- ESTA ES LA LÍNEA CLAVE ---
+// Hace que la carpeta de fotos sea accesible desde el navegador
+app.use('/uploads', express.static('uploads'));
+
 // MongoDB
 mongoose
   .connect(process.env.MONGODB_URI)
@@ -27,7 +32,7 @@ app.use('/api/auth', authRoutes);
 app.use(errorHandler);
 
 // Server
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Auth service corriendo en puerto ${PORT}`);
 });

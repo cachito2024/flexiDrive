@@ -50,7 +50,14 @@ export const updateProfileSchema = z.object({
 });
 
 export const completeComisionistaSchema = z.object({
-  alias: z.string().min(3, "El alias es muy corto"),
-  cuil: z.string().regex(/^\d{2}-\d{8}-\d{1}$/, "Formato de CUIL inválido (ej: 20-41411299-9)"),
-  cbu: z.string().length(22, "El CBU debe tener exactamente 22 dígitos").regex(/^\d+$/, "El CBU solo debe contener números")
+  entidadBancaria: z.string().min(2, "Ingresá el nombre del banco"),
+  nroCuenta: z.string().min(5, "Número de cuenta inválido"),
+  alias: z.string().min(3, "Alias demasiado corto"),
+  tipoCuenta: z.string().min(1, "El tipo de cuenta es obligatorio"), 
+  cbu: z.string().length(22, "El CBU debe tener 22 dígitos").regex(/^\d+$/),
+  cuit: z.string().regex(/^\d{2}-\d{8}-\d{1}$/, "Formato de CUIT inválido"),
+  
+  // Agregamos estos dos para que Zod no se queje de las rutas de las fotos
+  dniFrenteUrl: z.string().optional().nullable(),
+  dniDorsoUrl: z.string().optional().nullable()
 });

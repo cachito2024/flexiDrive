@@ -197,7 +197,7 @@ export const updateProfile = async (req, res, next) => {
   }
 };
 
-export const updateComisionistaData = async (req, res, next) => {
+/* export const updateComisionistaData = async (req, res, next) => {
   try {
     // 1. Validamos los campos con el esquema que ya tenés
     const datosValidados = completeComisionistaSchema.parse(req.body);
@@ -214,5 +214,116 @@ export const updateComisionistaData = async (req, res, next) => {
     });
   } catch (err) {
     return next(err);
+  }
+}; */
+/* 
+export const updateComisionistaData = async (req, res, next) => {
+  try {
+    // 1. Validamos los campos de texto con Zod
+    // Multer pone los textos en req.body automáticamente
+    completeComisionistaSchema.parse(req.body);
+    
+    const userId = req.userId; // Extraído de tu authMiddleware
+
+    // 2. Capturamos las rutas de los archivos procesados por Multer
+    // Usamos el encadenamiento opcional para evitar errores si falta un archivo
+    const dniFrenteUrl = req.files?.dniFrente ? req.files.dniFrente[0].path : null;
+    const dniDorsoUrl = req.files?.dniDorso ? req.files.dniDorso[0].path : null;
+
+    // 3. Juntamos TODO en un solo objeto para el servicio
+    const datosParaGuardar = {
+      ...req.body,
+      dniFrenteUrl,
+      dniDorsoUrl
+    };
+
+    // 4. Llamamos al servicio para guardar en MongoDB
+    const result = await completeComisionistaService(userId, datosParaGuardar);
+
+    return res.status(200).json({
+      message: "Datos bancarios y documentos actualizados correctamente",
+      comisionista: result
+    });
+  } catch (err) {
+    // Si falla Zod o la DB, el errorHandler se encarga
+    return next(err);
+  }
+};
+ */
+
+export const updateComisionistaData = async (req, res, next) => {
+  try {
+    // 1. Validamos los campos de texto con Zod
+    completeComisionistaSchema.parse(req.body);
+    
+    const userId = req.userId;
+
+    // 2. Capturamos y formateamos las rutas de los archivos
+    // El .replace cambia \ por / para que Windows no de problemas
+    const dniFrenteUrl = req.files?.dniFrente 
+      ? req.files.dniFrente[0].path.replace(/\\/g, '/') 
+      : null;
+
+    const dniDorsoUrl = req.files?.dniDorso 
+      ? req.files.dniDorso[0].path.replace(/\\/g, '/') 
+      : null;
+
+    // 3. Juntamos todo
+    const datosParaGuardar = {
+      ...req.body,
+      dniFrenteUrl,
+      dniDorsoUrl
+    };
+
+    // 4. Guardamos en la base de datos
+    const result = await completeComisionistaService(userId, datosParaGuardar);
+
+    // Si llegamos acá, devolvemos el éxito
+    return res.status(200).json({
+      message: "Datos bancarios y documentos actualizados correctamente",
+      comisionista: result
+    });
+
+  } catch (err) {
+    // Si hay un error, lo mandamos al errorHandler
+    return next(err);
+  }
+};
+
+export const approveComisionista = async (req, res, next) => {
+  try {
+    const { usuarioId } = req.body;
+
+    // 1. Verificamos que el usuario EXISTE y tiene el ROL de comisionista
+    // Buscamos en la tabla de relación de roles
+    const esComisionista = await UsuarioRol.findOne({ 
+      usuarioId: usuarioId,
+      rolId: 'comisionista' // O el ID que uses para comisionistas
+    });
+
+    if (!esComisionista) {
+      return res.status(400).json({ 
+        message: "Error: El usuario no tiene rol de comisionista o no existe." 
+      });
+    }
+
+    // 2. Si es comisionista, ahora sí lo aprobamos
+    const comisionista = await Comisionista.findOneAndUpdate(
+      { usuarioId: usuarioId },
+      { verificado: true },
+      { new: true }
+    );
+
+    if (!comisionista) {
+      return res.status(404).json({ message: "No se encontró el perfil técnico del comisionista." });
+    }
+
+    res.status(200).json({
+      message: "¡Comisionista aprobado con éxito!",
+      comisionista
+    });
+
+  } catch (error) {
+    next(error);
   }
 };
