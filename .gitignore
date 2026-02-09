@@ -27,4 +27,5 @@ yarn-error.log*
 
 microservicios/**/node_modules/
 microservicios/**/.env
+microservicios/auth-service/uploads/
 
