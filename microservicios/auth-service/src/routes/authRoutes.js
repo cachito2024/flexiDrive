@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData, approveComisionista} from '../controllers/authControllers.js';
+import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData, approveComisionista, getMyFullProfile, updateFullProfile, disableAccount} from '../controllers/authControllers.js';
 import { authMiddleware, isAdmin } from '../middlewares/authMiddleware.js'; // <-- Importalo acá
 import { upload } from '../middlewares/uploadMiddleware.js'; // <-- 1. Importá el middleware de subida
 const router = Router();
@@ -25,4 +25,11 @@ router.put('/complete-comisionista', authMiddleware,
 
   // Ruta para que el admin apruebe (después de mirar las fotos)
 router.patch('/approve-comisionista', authMiddleware, isAdmin, approveComisionista);
+
+//rutas crud usuarios 
+// Rutas de Perfil
+router.get('/me', authMiddleware, getMyFullProfile);
+router.put('/update', authMiddleware, updateFullProfile);
+router.patch('/disable', authMiddleware, disableAccount);
+
 export default router;
