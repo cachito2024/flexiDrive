@@ -327,3 +327,69 @@ export const approveComisionista = async (req, res, next) => {
     next(error);
   }
 };
+
+//crud usuarios
+export const getMyFullProfile = async (req, res, next) => {
+  try {
+    // 1. Buscamos los datos básicos del usuario
+    const usuario = await Usuario.findById(req.userId).select("-contraseña_hash");
+    if (!usuario) return res.status(404).json({ message: "Usuario no encontrado" });
+
+    // 2. Buscamos el rol en la tabla intermedia
+    const relacion = await UsuarioRol.findOne({ usuarioId: req.userId });
+    const rol = relacion ? relacion.rolId : 'cliente';
+
+    // 3. Si es comisionista, traemos sus datos específicos
+    let datosComisionista = null;
+    if (rol === 'comisionista') {
+      datosComisionista = await Comisionista.findOne({ usuarioId: req.userId });
+    }
+
+    // 4. Devolvemos TODO en un solo objeto
+    res.status(200).json({
+      usuario,
+      rol,
+      comisionista: datosComisionista
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateFullProfile = async (req, res, next) => {
+  try {
+    const { nombre, apellido, dni, fecha_nacimiento, datosBancarios } = req.body;
+
+    // 1. Actualizamos la tabla Usuario
+    const usuario = await Usuario.findByIdAndUpdate(
+      req.userId,
+      { nombre, apellido, dni, fecha_nacimiento },
+      { new: true, runValidators: true }
+    );
+
+    // 2. Si vienen datos bancarios y el usuario es comisionista, actualizamos esa tabla
+    if (datosBancarios) {
+      await Comisionista.findOneAndUpdate(
+        { usuarioId: req.userId },
+        { ...datosBancarios },
+        { new: true }
+      );
+    }
+
+    res.status(200).json({ message: "Perfil actualizado con éxito" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const disableAccount = async (req, res, next) => {
+  try {
+    await Usuario.findByIdAndUpdate(req.userId, { estado: "inactivo" });
+    
+    res.status(200).json({ 
+      message: "Cuenta desactivada correctamente. Ya no aparecerás en las búsquedas." 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
