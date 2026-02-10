@@ -12,6 +12,7 @@ import Usuario from '../models/userModel.js';
 import UsuarioRol from '../models/userRoleModel.js';
 import Rol from '../models/roleModel.js';
 import Comisionista from '../models/comisionistaModel.js';
+import bcrypt from 'bcrypt';
 
 export const register = async (req, res, next) => {
   try {
@@ -356,7 +357,7 @@ export const getMyFullProfile = async (req, res, next) => {
   }
 };
 
-export const updateFullProfile = async (req, res, next) => {
+/* export const updateFullProfile = async (req, res, next) => {
   try {
     const { nombre, apellido, dni, fecha_nacimiento, datosBancarios } = req.body;
 
@@ -380,6 +381,80 @@ export const updateFullProfile = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+}; */
+
+export const updateFullProfile = async (req, res, next) => {
+  try {
+    const { 
+        nombre, apellido, dni, fecha_nacimiento, 
+        passwordVieja, passwordNueva, // Campos de seguridad
+        datosBancarios // Campos de comisionista
+    } = req.body;
+    
+    const userId = req.userId;
+
+    // 1. Buscamos al usuario actual para comparar datos
+    const usuarioActual = await Usuario.findById(userId);
+    if (!usuarioActual) return res.status(404).json({ message: "Usuario no encontrado" });
+
+    let updateUserData = {};
+
+    // 2. LÓGICA DE CONTRASEÑA (Solo si quiere cambiarla)
+    if (passwordNueva && passwordNueva.trim() !== "") {
+      // ¿Mandó la vieja?
+      if (!passwordVieja) {
+        return res.status(400).json({ message: "Debes ingresar la contraseña actual para establecer una nueva." });
+      }
+
+      // ¿La vieja es correcta?
+      const esCorrecta = await bcrypt.compare(passwordVieja, usuarioActual.contraseña_hash);
+      if (!esCorrecta) {
+        return res.status(401).json({ message: "La contraseña actual es incorrecta." });
+      }
+
+      // Si todo OK, hasheamos la nueva
+      const salt = await bcrypt.genSalt(10);
+      updateUserData.contraseña_hash = await bcrypt.hash(passwordNueva, salt);
+    }
+
+    // 3. ACTUALIZACIÓN SELECTIVA (Solo si el dato viene en el body)
+    if (nombre) updateUserData.nombre = nombre;
+    if (apellido) updateUserData.apellido = apellido;
+    if (dni) updateUserData.dni = dni;
+    if (fecha_nacimiento) updateUserData.fecha_nacimiento = fecha_nacimiento;
+
+    // Guardamos cambios en Usuario
+    const usuarioActualizado = await Usuario.findByIdAndUpdate(
+      userId,
+      { $set: updateUserData },
+      { new: true }
+    );
+
+    // 4. LÓGICA DE COMISIONISTA
+    const relacion = await UsuarioRol.findOne({ usuarioId: userId });
+    
+    if (relacion && relacion.rolId === 'admin') { // O 'comisionista', según tu ID
+        // Si mandó datos bancarios, los actualizamos
+        if (datosBancarios) {
+            await Comisionista.findOneAndUpdate(
+                { usuarioId: userId },
+                { $set: datosBancarios },
+                { new: true }
+            );
+        }
+    }
+
+    res.status(200).json({
+      message: "¡Perfil actualizado con éxito!",
+      usuario: {
+        nombre: usuarioActualizado.nombre,
+        email: usuarioActualizado.email
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const disableAccount = async (req, res, next) => {
@@ -388,6 +463,29 @@ export const disableAccount = async (req, res, next) => {
     
     res.status(200).json({ 
       message: "Cuenta desactivada correctamente. Ya no aparecerás en las búsquedas." 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+//admin cambio de estado usuario
+export const adminDisableUser = async (req, res, next) => {
+  try {
+    const { usuarioId } = req.body; // El Admin manda el ID de la persona a desactivar
+
+    const usuario = await Usuario.findByIdAndUpdate(
+      usuarioId,
+      { estado: "inactivo" },
+      { new: true }
+    );
+
+    if (!usuario) {
+      return res.status(404).json({ message: "Usuario no encontrado" });
+    }
+
+    res.status(200).json({ 
+      message: `El usuario ${usuario.email} ha sido desactivado por el administrador.` 
     });
   } catch (error) {
     next(error);
