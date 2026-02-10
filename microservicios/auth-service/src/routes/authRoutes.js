@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData, approveComisionista, getMyFullProfile, updateFullProfile, disableAccount} from '../controllers/authControllers.js';
+import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData, approveComisionista, getMyFullProfile, updateFullProfile, disableAccount, adminDisableUser} from '../controllers/authControllers.js';
 import { authMiddleware, isAdmin } from '../middlewares/authMiddleware.js'; // <-- Importalo acá
 import { upload } from '../middlewares/uploadMiddleware.js'; // <-- 1. Importá el middleware de subida
 const router = Router();
@@ -31,5 +31,6 @@ router.patch('/approve-comisionista', authMiddleware, isAdmin, approveComisionis
 router.get('/me', authMiddleware, getMyFullProfile);
 router.put('/update', authMiddleware, updateFullProfile);
 router.patch('/disable', authMiddleware, disableAccount);
+router.patch('/admin/disable-user', authMiddleware, isAdmin, adminDisableUser);
 
 export default router;
