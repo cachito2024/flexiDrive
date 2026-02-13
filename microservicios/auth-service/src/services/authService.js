@@ -6,6 +6,7 @@ import Rol from '../models/roleModel.js';
 import Comisionista from '../models/comisionistaModel.js';
 import speakeasy from 'speakeasy';
 import qrcode from 'qrcode-terminal';
+import { OAuth2Client } from 'google-auth-library';
 import { generarTokenTemporal, generarTokenSesion, verificarToken } from '../utils/jwt.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'mi_clave_secreta_temporal';
@@ -64,26 +65,37 @@ export const registerUser = async (data) => {
   return { message: 'Usuario creado correctamente', usuarioId: usuario._id, otpauthUrl };
 };
 
-/* // Login de usuario (Paso 1) - MODIFICADO
-export const loginUser = async ({ email, password }) => {
-  const usuario = await Usuario.findOne({ email });
-  if (!usuario || usuario.estado !== 'activo') {
-    throw new Error('Credenciales inválidas o usuario inactivo');
-  }
+// Función interna de utilidad para chequear el estado real del usuario
+const checkUserProfile = async (userId) => {
+  const usuario = await Usuario.findById(userId);
+  
+  // 1. Datos básicos
+  const tieneDatosBasicos = !!(usuario.dni && usuario.fecha_nacimiento);
 
-  const passwordOk = await bcrypt.compare(password, usuario.contraseña_hash);
-  if (!passwordOk) throw new Error('Credenciales inválidas');
+  // 2. Rol (Buscamos en la tabla oficial 'usuarioxrol')
+  const relacionRol = await UsuarioRol.findOne({ usuarioId: userId });
+  const tieneRol = !!relacionRol;
 
-  // SI NO TIENE TOTP: Lo mandamos a configurar (Setup)
-  if (!usuario.totpSecret) {
-    const tempToken = generarTokenTemporal({ userId: usuario._id, step: 'setup' }); // <--- USAMOS LA FUNCIÓN
-    return { requiresSetup: true, tempToken, usuarioId: usuario._id };
-  }
+  // 3. Si es comisionista, chequeamos sus datos bancarios
+  let datosComisionistaCompletos = false;
+ if (relacionRol && relacionRol.rolId === 'comisionista') {
+  const comi = await Comisionista.findOne({ usuarioId: userId });
+  // Ahora chequeamos que tenga TODO: datos bancarios + fotos del DNI
+  datosComisionistaCompletos = !!(
+    comi?.alias && 
+    comi?.cbu && 
+    comi?.cuit && 
+    comi?.dniFrenteUrl && 
+    comi?.dniDorsoUrl
+  );
+}
+  return {
+    perfilCompleto: tieneDatosBasicos && tieneRol,
+    datosComisionistaCompletos,
+    rol: relacionRol ? relacionRol.rolId : 'pendiente'
+  };
+};
 
-  // SI YA TIENE TOTP: Le pedimos el código normal
-  const tempToken = generarTokenTemporal({ userId: usuario._id, step: 'totp' }); // <--- USAMOS LA FUNCIÓN
-return { requiresTotp: true, tempToken };
-}; */
 // Login de usuario (Paso 1)
 export const loginUser = async ({ email, password }) => {
   const usuario = await Usuario.findOne({ email });
@@ -128,63 +140,32 @@ export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
     secret: usuario.totpSecret,
     encoding: 'base32',
     token: String(codigoIngresado).trim(),
-    window: 2 // Un margen razonable de 1 minuto
+    window: 6 // Un margen razonable de 1 minuto
   });
 
   if (!verified) throw new Error('Código TOTP inválido');
+  // --- OJO ACÁ: BUSCAMOS EL ROL PARA METERLO EN EL TOKEN ---
+  const relacion = await UsuarioRol.findOne({ usuarioId: usuario._id });
+  const miRol = relacion ? relacion.rolId : 'cliente'; // Default por las dudas
 
   // 4. ÉXITO: Generamos el token de sesión definitivo
-  const token = generarTokenSesion({ userId: usuario._id });
+  const token = generarTokenSesion({ userId: usuario._id, rol: miRol });
 
-  return {
-    message: 'Login exitoso',
-    token, // Este es el pase de 24hs
-    usuario: {
-      nombre: usuario.nombre,
-      email: usuario.email
-    }
-  };
-};/* 
-// Verificación TOTP (Paso 2) - MODIFICADO
-export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
-  const decoded = verificarToken(tempToken);
-  try {
-    decoded = jwt.verify(tempToken, JWT_SECRET);
-  } catch (err) {
-    throw new Error('Token temporal inválido o expirado');
-  }
-
-  // VALIDACIÓN CLAVE: Si el token es de 'setup', no puede usar esta ruta de verificación normal
-  if (decoded.step === 'setup') {
-    throw new Error('Debes configurar y confirmar tu 2FA primero usando la ruta de confirmación');
-  }
-
-  if (decoded.step !== 'totp') {
-    throw new Error('Paso de verificación inválido');
-  }
-
-  const usuario = await Usuario.findById(decoded.userId);
-  if (!usuario) throw new Error('Usuario no encontrado');
-
-  const verified = speakeasy.totp.verify({
-    secret: usuario.totpSecret,
-    encoding: 'base32',
-    token: codigoIngresado,
-    window: 1
-  });
-
-  if (!verified) throw new Error('Código TOTP inválido');
-
-  // Si todo está OK, entregamos el token de sesión definitivo por 1 día
-  const token = generarTokenSesion({ userId: usuario._id });
+  // LLAMAMOS AL MISMO CHEQUEO MAESTRO ACÁ TAMBIÉN
+  const estadoPerfil = await checkUserProfile(usuario._id);
 
   return {
     message: 'Login exitoso',
     token,
-    usuarioId: usuario._id
+    ...estadoPerfil, // Este es el pase de 24hs
+    rol: miRol, // Se lo devolvemos al Front también
+    usuario: {
+      id: usuario._id,
+      nombre: usuario.nombre,
+      email: usuario.email
+    }
   };
 };
- */
 /* =========================
     HABILITAR TOTP (para usuarios existentes)
 ========================= */
@@ -224,43 +205,7 @@ export const enableTotp = async (userId) => {
 /* =========================
     CONFIRMAR ACTIVACIÓN TOTP
    ========================= */
-/* export const confirmTotp = async ({ userId, codigoIngresado }) => {
-  // 1. Log para debug (Verifica esto en tu consola de VS Code)
-  console.log(`🔍 Intentando confirmar TOTP para ID: ${userId} con código: ${codigoIngresado}`);
 
-  const usuario = await Usuario.findById(userId);
-  console.log(`📖 Secreto recuperado de la DB: ${usuario?.tempTotpSecret}`);
-
-  if (!usuario || !usuario.tempTotpSecret) {
-    console.log("❌ No se encontró el secreto temporal en la DB");
-    throw new Error('No hay un secreto TOTP pendiente de activación.');
-  }
-
-  // 2. VERIFICACIÓN (Con ajustes de seguridad)
-  const verified = speakeasy.totp.verify({
-    secret: usuario.tempTotpSecret,
-    encoding: 'base32',
-    token: String(codigoIngresado).trim(), // <--- MUY IMPORTANTE: Asegurar que sea String y sin espacios
-    window: 6 // Aumentamos el margen a 6 (permite códigos de hace 3 minutos o del próximo 3 minutos)
-  });
-
-  if (!verified) {
-    console.log("❌ El código no coincide con el secreto generado");
-    throw new Error('Código TOTP inválido. Intenta escanear el QR nuevamente.');
-  }
-
-  // 3. Activación exitosa
-  usuario.totpSecret = usuario.tempTotpSecret;
-  usuario.tempTotpSecret = undefined; // Limpiamos el temporal
-  await usuario.save();
-
-  console.log("✅ TOTP activado correctamente para:", usuario.email);
-
-  return {
-    message: 'La Autenticación de Dos Factores ha sido activada con éxito.'
-  };
-};
- */
 export const confirmTotp = async ({ userId, codigoIngresado }) => {
   console.log(`🔍 Intentando confirmar TOTP para ID: ${userId}`);
 
@@ -354,4 +299,95 @@ export const resetTotp = async ({ userId }) => {
   return {
     message: 'Seguridad restablecida. En tu próximo login deberás vincular tu dispositivo nuevamente.'
   };
+};
+
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+export const googleLoginService = async (idToken) => {
+  const ticket = await client.verifyIdToken({
+    idToken,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+  const { email, given_name, family_name } = ticket.getPayload();
+
+  // 1. Unificación: Buscamos si el mail ya está registrado (manual o Google)
+  let usuario = await Usuario.findOne({ email });
+
+  if (!usuario) {
+    // 2. Registro nuevo si no existe
+    usuario = await Usuario.create({
+      nombre: given_name,
+      apellido: family_name,
+      email: email,
+      estado: 'activo'
+    });
+    console.log(`✨ Nuevo usuario creado: ${email}`);
+  } 
+
+  // 3. Generamos el token de sesión nuestro (el de 24hs)
+  const token = generarTokenSesion({ userId: usuario._id });
+
+  // LLAMAMOS AL CHEQUEO MAESTRO
+  const estadoPerfil = await checkUserProfile(usuario._id);
+
+ /*  // 4. Chequeamos si faltan datos obligatorios para Flexi Drive
+ const perfilCompleto = !!(usuario.dni && usuario.fecha_nacimiento && (usuario.rol === 'cliente' || usuario.rol === 'comisionista')); */
+
+  return {
+    token,
+    ...estadoPerfil,
+       usuario: {
+      id: usuario._id,
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      email: usuario.email
+    }
+  };
+};
+
+
+/* // SERVICIO PARA ACTUALIZAR DATOS BANCARIOS (CBU, CUIL, ALIAS)
+export const completeComisionistaService = async (userId, data) => {
+  // data ya viene validado por Zod desde el controller
+  const actualizado = await Comisionista.findOneAndUpdate(
+    { usuarioId: userId },
+    { ...data },
+    { new: true, 
+      upsert: true, // Si no existe, lo crea
+      runValidators: true // Esto asegura que Zod y Mongoose trabajen juntos
+    }
+  );
+
+  if (!actualizado) {
+    throw new Error("No se encontró el perfil de comisionista para este usuario");
+  }
+
+  return actualizado;
+}; */
+
+export const completeComisionistaService = async (userId, data) => {
+  // data incluye: entidadBancaria, nroCuenta, tipoCuenta, alias, cbu, cuit, dniFrenteUrl, dniDorsoUrl
+  
+  const actualizado = await Comisionista.findOneAndUpdate(
+    { usuarioId: userId },
+    { 
+      ...data,
+      // Forzamos que el usuarioId esté siempre presente en caso de que sea un 'upsert' (creación)
+      usuarioId: userId 
+    },
+    { 
+      new: true, 
+      upsert: true, // Si no existe el registro en la tabla 'comisionista', lo crea ahora
+      runValidators: true // Valida contra el Schema de Mongoose
+    }
+  );
+
+  // Con upsert: true, es muy difícil que 'actualizado' sea null, 
+  // pero lo dejamos por seguridad.
+  if (!actualizado) {
+    throw new Error("No se pudo procesar el perfil del comisionista.");
+  }
+
+  return actualizado;
 };

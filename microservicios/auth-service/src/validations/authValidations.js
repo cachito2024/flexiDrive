@@ -26,3 +26,38 @@ export const confirmTotpSchema = z.object({
   userId: z.string().length(24, "ID inválido"),
   codigoIngresado: z.string().length(6, "El código debe ser de 6 dígitos")
 });
+
+
+export const updateProfileSchema = z.object({
+  dni: z
+    .number({ invalid_type_error: "El DNI debe ser un número" })
+    .min(1000000, "DNI demasiado corto")
+    .max(99999999, "DNI demasiado largo"),
+  
+  fecha_nacimiento: z
+    .string()
+    .refine((fecha) => !isNaN(Date.parse(fecha)), {
+      message: "Fecha de nacimiento inválida",
+    })
+    .transform((fecha) => new Date(fecha))
+    .refine((fecha) => fecha < new Date(), {
+      message: "La fecha de nacimiento no puede ser futura",
+    }),
+
+  rol: z.enum(['cliente', 'comisionista'], {
+    errorMap: () => ({ message: "El rol debe ser 'cliente' o 'comisionista'" }),
+  }),
+});
+
+export const completeComisionistaSchema = z.object({
+  entidadBancaria: z.string().min(2, "Ingresá el nombre del banco"),
+  nroCuenta: z.string().min(5, "Número de cuenta inválido"),
+  alias: z.string().min(3, "Alias demasiado corto"),
+  tipoCuenta: z.string().min(1, "El tipo de cuenta es obligatorio"), 
+  cbu: z.string().length(22, "El CBU debe tener 22 dígitos").regex(/^\d+$/),
+  cuit: z.string().regex(/^\d{2}-\d{8}-\d{1}$/, "Formato de CUIT inválido"),
+  
+  // Agregamos estos dos para que Zod no se queje de las rutas de las fotos
+  dniFrenteUrl: z.string().optional().nullable(),
+  dniDorsoUrl: z.string().optional().nullable()
+});
