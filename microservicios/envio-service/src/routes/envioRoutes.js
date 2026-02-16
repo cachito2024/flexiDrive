@@ -1,5 +1,5 @@
 import express from 'express';
-import { createEnvio, getEnviosDisponibles, aceptarEnvio, actualizarEstadoEnvio, getHistorial} from '../controllers/envioControllers.js';
+import { createEnvio, getEnviosDisponibles, aceptarEnvio, actualizarEstadoEnvio, getHistorial, updateEnvio, cancelarEnvio} from '../controllers/envioControllers.js';
 import { authMiddleware, isCliente, isComisionista} from '../middlewares/authMiddlewares.js'; // El que vas a copiar
 
 const router = express.Router();
