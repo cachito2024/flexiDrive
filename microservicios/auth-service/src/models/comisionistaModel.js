@@ -47,7 +47,9 @@ const ComisionistaSchema = new mongoose.Schema({
   verificado: {
     type: Boolean,
     default: false
-  }
+  },
+  calificacionPromedio: { type: Number, default: 5.0 }, // Inicia con el máximo
+  totalCalificaciones: { type: Number, default: 0 }    // Para ayudar al cálculo
 });
 
 export default mongoose.model(

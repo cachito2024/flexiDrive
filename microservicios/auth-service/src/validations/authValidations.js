@@ -3,9 +3,16 @@ import { z } from 'zod';
 
 export const registroSchema = z.object({
   nombre: z.string().min(2, "El nombre debe tener al menos 2 letras"),
+  apellido: z.string().min(2, "El apellido es obligatorio"), // <--- Agregalo acá
   email: z.string().email("El formato del email no es válido"),
   password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
   dni: z.number().positive("El DNI debe ser un número positivo"),
+  telefono: z.string()
+    .min(10, "El teléfono es demasiado corto")
+    .max(15, "El teléfono es demasiado largo")
+    .regex(/^\d+$/, "El teléfono solo debe contener números") 
+    // .transform() ayuda a limpiar si mandan espacios o un "+"
+    .transform(val => val.replace(/\D/g, '')),
   fecha_nacimiento: z.string().or(z.date()), // Acepta string de fecha o fecha
   rol: z.string().min(1, "El rol es obligatorio")
 });

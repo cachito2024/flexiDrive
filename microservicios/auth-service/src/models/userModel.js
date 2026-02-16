@@ -8,6 +8,7 @@ const UsuarioSchema = new mongoose.Schema({
   dni: Number,
   fecha_nacimiento: Date,
   fecha_registro: { type: Date, default: Date.now },
+  telefono: { type: String, required: true }, // Lo agregamos como requerido
  totpSecret: String,
  tempTotpSecret: String // Agrega esto para el flujo de activación/confirmación
 });
