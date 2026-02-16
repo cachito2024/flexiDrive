@@ -14,6 +14,7 @@ export const authMiddleware = (req, res, next) => {
     
     // Extraemos el ID y lo pasamos al req para que el controlador lo use
     req.userId = decoded.userId; 
+    req.userRol = decoded.rol; // <--- ESTA ES LA LÍNEA QUE TE FALTA
     
     next(); 
   } catch (error) {
@@ -21,5 +22,23 @@ export const authMiddleware = (req, res, next) => {
   }
 };
 
-// NOTA: No copies 'isAdmin' aquí por ahora, a menos que necesites 
-// proteger rutas de envíos específicamente para el Admin.
+export const isCliente = (req, res, next) => {
+    // El authMiddleware ya decodificó el token y puso los datos en req
+    // Si al generar el token incluiste el rol, lo verificamos así:
+    if (req.userRol !== 'cliente') {
+        return res.status(403).json({ 
+            message: "Acceso denegado. Solo los clientes pueden solicitar envíos." 
+        });
+    }
+    next();
+};
+
+export const isComisionista = (req, res, next) => {
+    // El authMiddleware ya cargó req.userRol desde el token
+    if (req.userRol !== 'comisionista') {
+        return res.status(403).json({ 
+            message: "Acceso denegado. Solo los comisionistas pueden ver envíos disponibles." 
+        });
+    }
+    next();
+};
