@@ -1,22 +1,23 @@
-import { 
-  registerUser, 
-  loginUser, 
+import {
+  registerUser,
+  loginUser,
   verifyTotp as verifyTotpService,
   enableTotp as enableTotpService,
   confirmTotp as confirmTotpService,
-  resetTotp as resetTotpService, 
-  googleLoginService, completeComisionistaService
+  resetTotp as resetTotpService,
+  googleLoginService, completeComisionistaService, registerVehiculoService, checkUserProfile
 } from '../services/authService.js';
 import { registroSchema, loginSchema, userIdSchema, confirmTotpSchema, updateProfileSchema, completeComisionistaSchema } from '../validations/authValidations.js';
 import Usuario from '../models/userModel.js';
 import UsuarioRol from '../models/userRoleModel.js';
 import Rol from '../models/roleModel.js';
+import Vehiculo from '../models/vehiculoModel.js';
 import Comisionista from '../models/comisionistaModel.js';
 import bcrypt from 'bcrypt';
 
 export const register = async (req, res, next) => {
   try {
-    registroSchema.parse(req.body); 
+    registroSchema.parse(req.body);
     const result = await registerUser(req.body);
     return res.status(201).json(result); // Agregado return
   } catch (err) {
@@ -42,9 +43,9 @@ export const login = async (req, res, next) => {
 
     // Si el usuario NO tiene 2FA (flujo viejo o desactivado), devuelve el token final
     return res.status(200).json(result);
-    
+
   } catch (err) {
-    return next(err); 
+    return next(err);
   }
 };
 
@@ -61,12 +62,12 @@ export const verifyTotp = async (req, res, next) => {
 
 export const enableTotp = async (req, res, next) => {
   try {
-    userIdSchema.parse(req.body); 
+    userIdSchema.parse(req.body);
     // Corregido: Llamamos a la función importada directamente
     const result = await enableTotpService(req.body.userId);
     return res.status(200).json(result);
-  } catch (err) { 
-    return next(err); 
+  } catch (err) {
+    return next(err);
   }
 };
 
@@ -75,8 +76,8 @@ export const confirmTotp = async (req, res, next) => {
     confirmTotpSchema.parse(req.body);
     const result = await confirmTotpService(req.body);
     return res.status(200).json(result);
-  } catch (err) { 
-    return next(err); 
+  } catch (err) {
+    return next(err);
   }
 };
 
@@ -85,8 +86,8 @@ export const resetTotp = async (req, res, next) => {
     userIdSchema.parse(req.body);
     const result = await resetTotpService({ userId: req.body.userId });
     return res.status(200).json(result);
-  } catch (err) { 
-    return next(err); 
+  } catch (err) {
+    return next(err);
   }
 };
 
@@ -140,7 +141,7 @@ export const updateProfile = async (req, res, next) => {
   try {
     // 1. Validamos los datos con Zod (dni, fecha_nacimiento, rol)
     const { dni, fecha_nacimiento, rol } = updateProfileSchema.parse(req.body);
-    
+
     const userId = req.userId; // Extraído del authMiddleware
 
     // 2. Actualizamos datos básicos en la colección de Usuario
@@ -256,17 +257,17 @@ export const updateComisionistaData = async (req, res, next) => {
   try {
     // 1. Validamos los campos de texto con Zod
     completeComisionistaSchema.parse(req.body);
-    
+
     const userId = req.userId;
 
     // 2. Capturamos y formateamos las rutas de los archivos
     // El .replace cambia \ por / para que Windows no de problemas
-    const dniFrenteUrl = req.files?.dniFrente 
-      ? req.files.dniFrente[0].path.replace(/\\/g, '/') 
+    const dniFrenteUrl = req.files?.dniFrente
+      ? req.files.dniFrente[0].path.replace(/\\/g, '/')
       : null;
 
-    const dniDorsoUrl = req.files?.dniDorso 
-      ? req.files.dniDorso[0].path.replace(/\\/g, '/') 
+    const dniDorsoUrl = req.files?.dniDorso
+      ? req.files.dniDorso[0].path.replace(/\\/g, '/')
       : null;
 
     // 3. Juntamos todo
@@ -297,14 +298,14 @@ export const approveComisionista = async (req, res, next) => {
 
     // 1. Verificamos que el usuario EXISTE y tiene el ROL de comisionista
     // Buscamos en la tabla de relación de roles
-    const esComisionista = await UsuarioRol.findOne({ 
+    const esComisionista = await UsuarioRol.findOne({
       usuarioId: usuarioId,
       rolId: 'comisionista' // O el ID que uses para comisionistas
     });
 
     if (!esComisionista) {
-      return res.status(400).json({ 
-        message: "Error: El usuario no tiene rol de comisionista o no existe." 
+      return res.status(400).json({
+        message: "Error: El usuario no tiene rol de comisionista o no existe."
       });
     }
 
@@ -385,12 +386,13 @@ export const getMyFullProfile = async (req, res, next) => {
 
 export const updateFullProfile = async (req, res, next) => {
   try {
-    const { 
-        nombre, apellido, dni, fecha_nacimiento, 
-        passwordVieja, passwordNueva, // Campos de seguridad
-        datosBancarios // Campos de comisionista
+    const {
+      nombre, apellido, dni, fecha_nacimiento,
+      passwordVieja, passwordNueva, // Campos de seguridad
+      datosBancarios, // Campos de comisionista
+      vehiculo // Para la tabla Vehiculo (marca, modelo, etc.)
     } = req.body;
-    
+
     const userId = req.userId;
 
     // 1. Buscamos al usuario actual para comparar datos
@@ -432,16 +434,24 @@ export const updateFullProfile = async (req, res, next) => {
 
     // 4. LÓGICA DE COMISIONISTA
     const relacion = await UsuarioRol.findOne({ usuarioId: userId });
-    
+
     if (relacion && relacion.rolId === 'admin') { // O 'comisionista', según tu ID
-        // Si mandó datos bancarios, los actualizamos
-        if (datosBancarios) {
-            await Comisionista.findOneAndUpdate(
-                { usuarioId: userId },
-                { $set: datosBancarios },
-                { new: true }
-            );
-        }
+      // Si mandó datos bancarios, los actualizamos
+      if (datosBancarios) {
+        await Comisionista.findOneAndUpdate(
+          { usuarioId: userId },
+          { $set: datosBancarios },
+          { new: true }
+        );
+      }
+      // Actualizar datos del vehículo (si manda el vehiculoId)
+      if (vehiculo && vehiculo.id) {
+        await Vehiculo.findOneAndUpdate(
+          { _id: vehiculo.id, comisionistaId: userId }, // Seguridad: que sea SU vehículo
+          { $set: vehiculo },
+          { new: true }
+        );
+      }
     }
 
     res.status(200).json({
@@ -460,9 +470,9 @@ export const updateFullProfile = async (req, res, next) => {
 export const disableAccount = async (req, res, next) => {
   try {
     await Usuario.findByIdAndUpdate(req.userId, { estado: "inactivo" });
-    
-    res.status(200).json({ 
-      message: "Cuenta desactivada correctamente. Ya no aparecerás en las búsquedas." 
+
+    res.status(200).json({
+      message: "Cuenta desactivada correctamente. Ya no aparecerás en las búsquedas."
     });
   } catch (error) {
     next(error);
@@ -484,9 +494,106 @@ export const adminDisableUser = async (req, res, next) => {
       return res.status(404).json({ message: "Usuario no encontrado" });
     }
 
-    res.status(200).json({ 
-      message: `El usuario ${usuario.email} ha sido desactivado por el administrador.` 
+    res.status(200).json({
+      message: `El usuario ${usuario.email} ha sido desactivado por el administrador.`
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const registerVehiculo = async (req, res, next) => {
+  try {
+    const userId = req.userId; // Viene del authMiddleware
+    const vehiculo = await registerVehiculoService(userId, req.body);
+
+    res.status(201).json({
+      message: "Vehículo registrado con éxito. Pendiente de verificación.",
+      vehiculo
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Endpoint para que Marta elija sus vehículos al aceptar un envío
+export const getMyVehicles = async (req, res, next) => {
+  try {
+    const vehiculos = await Vehiculo.find({ comisionistaId: req.userId });
+    res.status(200).json(vehiculos);
+  } catch (error) {
+    next(error);
+  }
+};
+//aprovar q esta verificado el vehiculo. 
+export const approveVehiculo = async (req, res, next) => {
+  try {
+    const { vehiculoId } = req.body;
+
+    const vehiculo = await Vehiculo.findByIdAndUpdate(
+      vehiculoId, 
+      { verificado: true }, 
+      { new: true }
+    );
+
+    if (!vehiculo) {
+      return res.status(404).json({ message: "Vehículo no encontrado." });
+    }
+
+    res.status(200).json({ 
+      message: "Vehículo verificado con éxito por el administrador.",
+      vehiculo 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+export const getComisionistasHabilitados = async (req, res, next) => {
+  try {
+    // 1. Buscamos usuarios que tengan el rol de 'comisionista'
+    const relaciones = await UsuarioRol.find({ rolId: 'comisionista' });
+    const ids = relaciones.map(r => r.usuarioId);
+
+    // 2. Buscamos los datos de esos usuarios (CORRECCIÓN: Usamos $in)
+    const comisionistas = await Usuario.find({ 
+      _id: { $in: ids }, // Cambiado $into por $in
+      estado: 'activo'   // Agregamos que el usuario no esté baneado/inactivo
+    }).select('nombre apellido email dni');
+
+    const habilitados = [];
+
+    // 3. Filtramos usando el "Check Maestro" que ya tenés
+    for (let comi of comisionistas) {
+      const status = await checkUserProfile(comi._id);
+      
+      // Si pasa todos los filtros de seguridad de tu tesis
+      if (status.perfilCompleto && status.datosComisionistaCompletos && status.tieneVehiculo) {
+        habilitados.push({
+          id: comi._id,
+          nombre: comi.nombre,
+          apellido: comi.apellido,
+          email: comi.email,
+          verificado: true // Esto le sirve al Front para poner el tilde azul
+        });
+      }
+    }
+
+    res.status(200).json(habilitados);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getUserPublicInfo = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const usuario = await Usuario.findById(id).select('nombre apellido telefono email');
+
+    if (!usuario) {
+      return res.status(404).json({ message: "Usuario no encontrado" });
+    }
+
+    res.status(200).json(usuario);
   } catch (error) {
     next(error);
   }

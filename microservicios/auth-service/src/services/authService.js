@@ -4,6 +4,7 @@ import Usuario from '../models/userModel.js';
 import UsuarioRol from '../models/userRoleModel.js';
 import Rol from '../models/roleModel.js';
 import Comisionista from '../models/comisionistaModel.js';
+import Vehiculo from '../models/vehiculoModel.js';
 import speakeasy from 'speakeasy';
 import qrcode from 'qrcode-terminal';
 import { OAuth2Client } from 'google-auth-library';
@@ -15,7 +16,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'mi_clave_secreta_temporal';
 export const registerUser = async (data) => {
   const {
     nombre, apellido, email, password, rol,
-    dni, fecha_nacimiento, cuil, alias, cbu
+    dni, fecha_nacimiento,telefono
   } = data;
 
   // 1. Validaciones de existencia (Email único y Rol)
@@ -30,7 +31,7 @@ export const registerUser = async (data) => {
   const contraseña_hash = await bcrypt.hash(password, 10);
   const usuario = await Usuario.create({
     nombre, apellido, email, contraseña_hash,
-    dni, fecha_nacimiento, estado: 'activo'
+    dni, fecha_nacimiento, telefono, estado: 'activo'
   });
 
   // 3. Generar secreto TOTP
@@ -46,7 +47,7 @@ export const registerUser = async (data) => {
     // Aquí podrías agregar validación de Zod específica para comisionista luego
     await Comisionista.create({
       usuarioId: usuario._id,
-      alias, cuil, cbu, verificado: false
+      verificado: false
     });
   }
 
@@ -66,9 +67,9 @@ export const registerUser = async (data) => {
 };
 
 // Función interna de utilidad para chequear el estado real del usuario
-const checkUserProfile = async (userId) => {
+/* const checkUserProfile = async (userId) => {
   const usuario = await Usuario.findById(userId);
-  
+
   // 1. Datos básicos
   const tieneDatosBasicos = !!(usuario.dni && usuario.fecha_nacimiento);
 
@@ -78,21 +79,62 @@ const checkUserProfile = async (userId) => {
 
   // 3. Si es comisionista, chequeamos sus datos bancarios
   let datosComisionistaCompletos = false;
- if (relacionRol && relacionRol.rolId === 'comisionista') {
-  const comi = await Comisionista.findOne({ usuarioId: userId });
-  // Ahora chequeamos que tenga TODO: datos bancarios + fotos del DNI
-  datosComisionistaCompletos = !!(
-    comi?.alias && 
-    comi?.cbu && 
-    comi?.cuit && 
-    comi?.dniFrenteUrl && 
-    comi?.dniDorsoUrl
-  );
-}
+  if (relacionRol && relacionRol.rolId === 'comisionista') {
+    const comi = await Comisionista.findOne({ usuarioId: userId });
+    const vehiculo = await Vehiculo.findOne({ comisionistaId: userId });
+    // Ahora chequeamos que tenga TODO: datos bancarios + fotos del DNI
+    datosComisionistaCompletos = !!(
+      comi?.alias &&
+      comi?.cbu &&
+      comi?.cuit &&
+      comi?.dniFrenteUrl &&
+      comi?.dniDorsoUrl
+
+    ); // Verificamos si registró al menos un vehículo
+    tieneVehiculo = !!vehiculo;
+  }
   return {
     perfilCompleto: tieneDatosBasicos && tieneRol,
     datosComisionistaCompletos,
+    tieneVehiculo,
     rol: relacionRol ? relacionRol.rolId : 'pendiente'
+  };
+}; */
+
+export const checkUserProfile = async (userId) => {
+  const usuario = await Usuario.findById(userId);
+  const relacionRol = await UsuarioRol.findOne({ usuarioId: userId });
+  
+  // 1. Datos básicos del usuario (DNI y Fecha Nac son obligatorios para todos)
+  const tieneDatosBasicos = !!(usuario?.dni && usuario?.fecha_nacimiento);
+
+  let datosComisionistaCompletos = false;
+  let tieneVehiculo = false;
+  const rol = relacionRol ? relacionRol.rolId : 'pendiente';
+
+  // 2. Lógica específica si es Comisionista
+  if (rol === 'comisionista') {
+    const comi = await Comisionista.findOne({ usuarioId: userId });
+    const vehiculo = await Vehiculo.findOne({ comisionistaId: userId });
+
+    // Verificamos datos bancarios y fotos
+    datosComisionistaCompletos = !!(
+      comi?.alias && 
+      comi?.cbu && 
+      comi?.cuit && 
+      comi?.dniFrenteUrl && 
+      comi?.dniDorsoUrl
+    );
+
+    // Verificamos si registró al menos un vehículo
+    tieneVehiculo = !!vehiculo;
+  }
+
+  return {
+    perfilCompleto: tieneDatosBasicos && rol !== 'pendiente',
+    datosComisionistaCompletos, // Datos bancarios/DNI
+    tieneVehiculo,             // ¿Cargó la Kangoo?
+    rol
   };
 };
 
@@ -103,17 +145,21 @@ export const loginUser = async ({ email, password }) => {
     throw new Error('Credenciales inválidas o usuario inactivo');
   }
 
+  // 🛡️ Agregamos esta validación para evitar el error de data and hash
+  if (!usuario.contraseña_hash) {
+    throw new Error('Este usuario no tiene contraseña (registrado con Google). Usa el inicio de sesión con Google.');
+  }
   const passwordOk = await bcrypt.compare(password, usuario.contraseña_hash);
   if (!passwordOk) throw new Error('Credenciales inválidas');
 
   // SI NO TIENE TOTP: Setup
   if (!usuario.totpSecret) {
-    const tempToken = generarTokenTemporal({ userId: usuario._id, step: 'setup' }); 
+    const tempToken = generarTokenTemporal({ userId: usuario._id, step: 'setup' });
     return { requiresSetup: true, tempToken, usuarioId: usuario._id };
   }
 
   // SI YA TIENE TOTP: Desafío
-  const tempToken = generarTokenTemporal({ userId: usuario._id, step: 'totp' }); 
+  const tempToken = generarTokenTemporal({ userId: usuario._id, step: 'totp' });
   return { requiresTotp: true, tempToken };
 };
 
@@ -323,7 +369,7 @@ export const googleLoginService = async (idToken) => {
       estado: 'activo'
     });
     console.log(`✨ Nuevo usuario creado: ${email}`);
-  } 
+  }
 
   // 3. Generamos el token de sesión nuestro (el de 24hs)
   const token = generarTokenSesion({ userId: usuario._id });
@@ -331,13 +377,13 @@ export const googleLoginService = async (idToken) => {
   // LLAMAMOS AL CHEQUEO MAESTRO
   const estadoPerfil = await checkUserProfile(usuario._id);
 
- /*  // 4. Chequeamos si faltan datos obligatorios para Flexi Drive
- const perfilCompleto = !!(usuario.dni && usuario.fecha_nacimiento && (usuario.rol === 'cliente' || usuario.rol === 'comisionista')); */
+  /*  // 4. Chequeamos si faltan datos obligatorios para Flexi Drive
+  const perfilCompleto = !!(usuario.dni && usuario.fecha_nacimiento && (usuario.rol === 'cliente' || usuario.rol === 'comisionista')); */
 
   return {
     token,
     ...estadoPerfil,
-       usuario: {
+    usuario: {
       id: usuario._id,
       nombre: usuario.nombre,
       apellido: usuario.apellido,
@@ -368,16 +414,16 @@ export const completeComisionistaService = async (userId, data) => {
 
 export const completeComisionistaService = async (userId, data) => {
   // data incluye: entidadBancaria, nroCuenta, tipoCuenta, alias, cbu, cuit, dniFrenteUrl, dniDorsoUrl
-  
+
   const actualizado = await Comisionista.findOneAndUpdate(
     { usuarioId: userId },
-    { 
+    {
       ...data,
       // Forzamos que el usuarioId esté siempre presente en caso de que sea un 'upsert' (creación)
-      usuarioId: userId 
+      usuarioId: userId
     },
-    { 
-      new: true, 
+    {
+      new: true,
       upsert: true, // Si no existe el registro en la tabla 'comisionista', lo crea ahora
       runValidators: true // Valida contra el Schema de Mongoose
     }
@@ -390,4 +436,18 @@ export const completeComisionistaService = async (userId, data) => {
   }
 
   return actualizado;
+};
+
+export const registerVehiculoService = async (userId, data) => {
+  // Verificamos si la patente ya existe para no duplicar
+  const existePatente = await Vehiculo.findOne({ patente: data.patente });
+  if (existePatente) throw new Error("Esta patente ya está registrada en el sistema.");
+
+  const nuevoVehiculo = await Vehiculo.create({
+    ...data,
+    comisionistaId: userId,
+    verificado: false // El admin deberá aprobarlo después
+  });
+
+  return nuevoVehiculo;
 };

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData, approveComisionista, getMyFullProfile, updateFullProfile, disableAccount, adminDisableUser} from '../controllers/authControllers.js';
+import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData, approveComisionista, getMyFullProfile, updateFullProfile, disableAccount, adminDisableUser, registerVehiculo, getMyVehicles, approveVehiculo, getComisionistasHabilitados, getUserPublicInfo} from '../controllers/authControllers.js';
 import { authMiddleware, isAdmin } from '../middlewares/authMiddleware.js'; // <-- Importalo acá
 import { upload } from '../middlewares/uploadMiddleware.js'; // <-- 1. Importá el middleware de subida
 const router = Router();
@@ -32,5 +32,18 @@ router.get('/me', authMiddleware, getMyFullProfile);
 router.put('/update', authMiddleware, updateFullProfile);
 router.patch('/disable', authMiddleware, disableAccount);
 router.patch('/admin/disable-user', authMiddleware, isAdmin, adminDisableUser);
+
+// Registro de vehículo para comisionistas
+router.post('/register-vehiculo', authMiddleware, registerVehiculo);
+
+// Listado de vehículos propios
+router.get('/my-vehicles', authMiddleware, getMyVehicles);
+
+// Aprobación de vehículos (Solo Admin)
+router.patch('/approve-vehiculo', authMiddleware, isAdmin, approveVehiculo);
+// Ruta para listar comisionistas que pasaron todas las verificaciones
+router.get('/comisionistas/habilitados', getComisionistasHabilitados);
+//obtener datos para micro envio
+router.get('/usuarios/:id', authMiddleware, getUserPublicInfo);
 
 export default router;
