@@ -32,7 +32,15 @@ nro_envio: { type: String, unique: true }, // El código humano
   fecha_hora_retiro: { type: Date, required: true },
   estadoId: { 
     type: String, 
-    enum: ['PENDIENTE', 'ASIGNADO', 'EN_RETIRO', 'EN_CAMINO', 'ENTREGADO', 'CANCELADO'],
+    enum: ['PENDIENTE', 
+      'ASIGNADO', 
+      'EN_RETIRO', 
+      'EN_CAMINO', 
+      'ENTREGADO', 
+      'DEMORADO', 
+      'CANCELADO', 
+      'CANCELADO_RETORNO', 
+      'DEVUELTO'],
     default: 'PENDIENTE' 
   },
   

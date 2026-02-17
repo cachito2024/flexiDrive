@@ -583,3 +583,18 @@ export const getComisionistasHabilitados = async (req, res, next) => {
     next(error);
   }
 };
+
+export const getUserPublicInfo = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const usuario = await Usuario.findById(id).select('nombre apellido telefono email');
+
+    if (!usuario) {
+      return res.status(404).json({ message: "Usuario no encontrado" });
+    }
+
+    res.status(200).json(usuario);
+  } catch (error) {
+    next(error);
+  }
+};
