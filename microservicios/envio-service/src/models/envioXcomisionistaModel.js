@@ -5,11 +5,21 @@ const envioXComisionistaSchema = new mongoose.Schema({
   envioId: { type: mongoose.Schema.Types.ObjectId, ref: 'Envio', required: true }, 
   vehiculoId: { type: mongoose.Schema.Types.ObjectId, required: true }, // El que Marta elija al aceptar
   fecha_asignacion: { type: Date, default: Date.now },
+  fecha_retiro: { type: Date },
+  fecha_demora: { type: Date },
   fecha_inicio: { type: Date },
   fecha_fin: { type: Date },
   estado_id: { 
     type: String, 
-    enum: ['ASIGNADO', 'PENDIENTE', 'EN_RETIRO', 'EN_CAMINO', 'ENTREGADO', 'DEMORADO', 'CANCELADO','CANCELADO_RETORNO', 'DEVUELTO'],
+    enum: ['PENDIENTE', 
+      'ASIGNADO', 
+      'EN_RETIRO', 
+      'EN_CAMINO', 
+      'ENTREGADO', 
+      'DEMORADO', 
+      'CANCELADO', 
+      'CANCELADO_RETORNO', 
+      'DEVUELTO'],
     default: 'PENDIENTE' 
   }
 }, { timestamps: true });
