@@ -13,58 +13,71 @@ import { generarTokenTemporal, generarTokenSesion, verificarToken } from '../uti
 const JWT_SECRET = process.env.JWT_SECRET || 'mi_clave_secreta_temporal';
 
 // Registro de usuario
+// Registro de usuario
 export const registerUser = async (data) => {
   const {
     nombre, apellido, email, password, rol,
-    dni, fecha_nacimiento,telefono
+    dni, fecha_nacimiento, telefono
   } = data;
 
   // 1. Validaciones de existencia (Email único y Rol)
-  // Nota: Ya no validamos "if (!email)..." porque Zod lo hizo en el controller
   const existe = await Usuario.findOne({ email });
-  if (existe) throw new Error('Email ya registrado');
+  if (existe) throw new Error("Email ya registrado");
 
   const rolDB = await Rol.findById(rol);
-  if (!rolDB) throw new Error('Rol inválido');
+  if (!rolDB) throw new Error("Rol inválido");
 
   // 2. Hash contraseña y Crear usuario
   const contraseña_hash = await bcrypt.hash(password, 10);
   const usuario = await Usuario.create({
-    nombre, apellido, email, contraseña_hash,
-    dni, fecha_nacimiento, telefono, estado: 'activo'
+    nombre,
+    apellido,
+    email,
+    contraseña_hash,
+    dni,
+    fecha_nacimiento,
+    telefono,
+    estado: "activo",
   });
 
-  // 3. Generar secreto TOTP
-  const totpSecret = speakeasy.generateSecret({ length: 20 }).base32;
-  usuario.totpSecret = totpSecret;
+  // ✅ 3. Generar secreto TOTP + otpauthUrl COHERENTES (MISMO SECRET)
+  const secret = speakeasy.generateSecret({
+    length: 20,
+    name: `FlexiDrive:${email}`,
+    issuer: "FlexiDrive",
+  });
+
+  // Guardamos exactamente el secret que corresponde al otpauthUrl
+  usuario.totpSecret = secret.base32;
   await usuario.save();
+
+  // Esta URL ya viene correcta y coincide con el secret guardado
+  const otpauthUrl = secret.otpauth_url;
 
   // 4. Relación usuario - rol
   await UsuarioRol.create({ usuarioId: usuario._id, rolId: rolDB._id });
 
   // 5. Datos extra para comisionista
-  if (rolDB.nombre === 'comisionista') {
-    // Aquí podrías agregar validación de Zod específica para comisionista luego
+  if (rolDB.nombre === "comisionista") {
     await Comisionista.create({
       usuarioId: usuario._id,
-      verificado: false
+      verificado: false,
     });
   }
 
-  // 6. Generar QR para consola
-  const otpauthUrl = speakeasy.otpauthURL({
-    secret: totpSecret,
-    label: `${usuario.email}`,
-    issuer: 'FlexiDrive'
-  });
-
+  // 6. Mostrar QR en consola (opcional, pero útil)
   console.log("\n------------------------------------------------");
   console.log(`📱 NUEVO USUARIO: ${usuario.email}`);
   qrcode.generate(otpauthUrl, { small: true });
   console.log("------------------------------------------------\n");
 
-  return { message: 'Usuario creado correctamente', usuarioId: usuario._id, otpauthUrl };
+  return {
+    message: "Usuario creado correctamente",
+    usuarioId: usuario._id,
+    otpauthUrl,
+  };
 };
+
 
 // Función interna de utilidad para chequear el estado real del usuario
 /* const checkUserProfile = async (userId) => {
@@ -165,11 +178,8 @@ export const loginUser = async ({ email, password }) => {
 
 // Verificación TOTP (Paso 2)
 export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
-  // 1. Usamos SOLO nuestra función. No hace falta el try/catch acá porque 
-  // verificarToken ya lanza el error si falla.
   const decoded = verificarToken(tempToken);
 
-  // 2. Validaciones de seguridad sobre el contenido del token
   if (decoded.step === 'setup') {
     throw new Error('Debes confirmar tu 2FA primero usando la ruta de confirmación');
   }
@@ -181,15 +191,30 @@ export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
   const usuario = await Usuario.findById(decoded.userId);
   if (!usuario) throw new Error('Usuario no encontrado');
 
+  // ✅ DEBUG (PEGAR ACÁ)
+  console.log("----- DEBUG VERIFY TOTP -----");
+  console.log("decoded.userId:", decoded.userId);
+  console.log("email:", usuario.email);
+  console.log("secret(DB):", usuario.totpSecret);
+
+  const expectedNow = speakeasy.totp({
+    secret: usuario.totpSecret,
+    encoding: "base32",
+  });
+  console.log("expectedNow(server):", expectedNow);
+  console.log("codigoIngresado:", String(codigoIngresado).trim());
+  console.log("-----------------------------");
+
   // 3. Verificación del código de Google Authenticator
   const verified = speakeasy.totp.verify({
     secret: usuario.totpSecret,
     encoding: 'base32',
     token: String(codigoIngresado).trim(),
-    window: 6 // Un margen razonable de 1 minuto
+    window: 6
   });
 
   if (!verified) throw new Error('Código TOTP inválido');
+
   // --- OJO ACÁ: BUSCAMOS EL ROL PARA METERLO EN EL TOKEN ---
   const relacion = await UsuarioRol.findOne({ usuarioId: usuario._id });
   const miRol = relacion ? relacion.rolId : 'cliente'; // Default por las dudas
