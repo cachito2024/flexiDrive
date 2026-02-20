@@ -44,7 +44,10 @@ nro_envio: { type: String, unique: true }, // El código humano
     default: 'PENDIENTE' 
   },
   
-  notas_adicionales: String
+  notas_adicionales: String,
+  // 👈 AGREGÁ ESTA LÍNEA AL FINAL DEL ESQUEMA
+  polyline_especifica: { type: String, default: "" } 
 }, { timestamps: true });
+
 
 export default mongoose.model('Envio', envioSchema, 'envios');
