@@ -181,15 +181,20 @@ export const updateProfile = async (req, res, next) => {
         console.log(`✅ Perfil de comisionista creado para: ${userId}`);
       }
     }
+    // 🌟 --- LO NUEVO: Generar Token con el ROL incluido ---
+    const tokenActualizado = generarTokenSesion({ userId, rol: rolDB._id });
 
     // 6. Respuesta final exitosa
-    res.status(200).json({
+  res.status(200).json({
       message: "Perfil y Rol completados con éxito",
+      token: tokenActualizado, // Crucial para que el Front actualice el rol en el almacenamiento
+      perfilCompleto: true,    // Le confirma al Front que ya puede salir del formulario
+      requiresSetup: !usuarioActualizado.totpSecret, // Si es true, ella lo manda a configurar el QR
+      rol: rolDB._id,
       usuario: {
         id: usuarioActualizado._id,
         nombre: usuarioActualizado.nombre,
-        dni: usuarioActualizado.dni,
-        rol: rolDB._id
+        dni: usuarioActualizado.dni
       }
     });
 
@@ -612,12 +617,41 @@ export const getPublicComisionistaProfile = async (req, res, next) => {
   try {
     const { id } = req.params;
     const usuario = await Usuario.findById(id).select('nombre apellido telefono email');
-    const comisionista = await Comisionista.findOne({ usuarioId: id }).select('verificado');
+    const comisionista = await Comisionista.findOne({ usuarioId: id }).select('verificado reputacion');
     const vehiculo = await Vehiculo.findOne({ comisionistaId: id, verificado: true }).select('marca modelo patente color');
 
     if (!usuario) return res.status(404).json({ message: "Comisionista no encontrado" });
 
     res.status(200).json({ usuario, comisionista, vehiculo });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateReputacionComisionista = async (req, res, next) => {
+  try {
+    const { id } = req.params; // Este es el usuarioId que viene del Micro de Calificaciones
+    const { promedio } = req.body;
+
+    // 1. Intentamos actualizar directamente en la tabla Comisionistas
+    // Buscamos por usuarioId porque es la relación que tenés
+    const perfilComisionista = await Comisionista.findOneAndUpdate(
+      { usuarioId: id },
+      { reputacion: promedio },
+      { new: true }
+    );
+
+    // 2. Si no existe en esta tabla, significa que NO es un comisionista
+    if (!perfilComisionista) {
+      return res.status(404).json({ 
+        message: "Error: El usuario no posee un perfil de comisionista activo." 
+      });
+    }
+
+    res.status(200).json({ 
+      message: "Reputación actualizada con éxito en el perfil técnico.",
+      reputacion: perfilComisionista.reputacion 
+    });
   } catch (error) {
     next(error);
   }
