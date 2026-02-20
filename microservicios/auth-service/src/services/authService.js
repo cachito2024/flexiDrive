@@ -16,7 +16,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'mi_clave_secreta_temporal';
 export const registerUser = async (data) => {
   const {
     nombre, apellido, email, password, rol,
-    dni, fecha_nacimiento,telefono
+    dni, fecha_nacimiento, telefono
   } = data;
 
   // 1. Validaciones de existencia (Email único y Rol)
@@ -70,7 +70,7 @@ export const registerUser = async (data) => {
 export const checkUserProfile = async (userId) => {
   const usuario = await Usuario.findById(userId);
   const relacionRol = await UsuarioRol.findOne({ usuarioId: userId });
-  
+
   // 1. Datos básicos del usuario (DNI y Fecha Nac son obligatorios para todos)
   const tieneDatosBasicos = !!(usuario?.dni && usuario?.fecha_nacimiento);
 
@@ -85,10 +85,10 @@ export const checkUserProfile = async (userId) => {
 
     // Verificamos datos bancarios y fotos
     datosComisionistaCompletos = !!(
-      comi?.alias && 
-      comi?.cbu && 
-      comi?.cuit && 
-      comi?.dniFrenteUrl && 
+      comi?.alias &&
+      comi?.cbu &&
+      comi?.cuit &&
+      comi?.dniFrenteUrl &&
       comi?.dniDorsoUrl
     );
 
@@ -337,18 +337,44 @@ export const googleLoginService = async (idToken) => {
     console.log(`✨ Nuevo usuario creado: ${email}`);
   }
 
+
   // 3. Generamos el token de sesión nuestro (el de 24hs)
-  const token = generarTokenSesion({ userId: usuario._id });
+  /* const token = generarTokenSesion({ userId: usuario._id }); */
 
   // LLAMAMOS AL CHEQUEO MAESTRO
   const estadoPerfil = await checkUserProfile(usuario._id);
 
   /*  // 4. Chequeamos si faltan datos obligatorios para Flexi Drive
   const perfilCompleto = !!(usuario.dni && usuario.fecha_nacimiento && (usuario.rol === 'cliente' || usuario.rol === 'comisionista')); */
+  // LÓGICA DE SEGURIDAD PARA EL FRONT:
+  // Si ya tiene totpSecret, le pedimos verificación (requiresTotp).
+  // Si NO tiene totpSecret, le pedimos que lo configure (requiresSetup).
+  const tiene2FA = !!usuario.totpSecret;
+
+  // Si ya tiene todo (Perfil + 2FA), le damos el token de sesión.
+  // Si le falta algo, le damos un token temporal para que complete los pasos.
+  /* const token = tiene2FA && estadoPerfil.perfilCompleto
+    ? generarTokenSesion({ userId: usuario._id, rol: estadoPerfil.rol })
+    : generarTokenTemporal({ userId: usuario._id, step: tiene2FA ? 'totp' : 'setup' }); */
+    let token;
+  if (tiene2FA) {
+    // Si tiene 2FA, no importa si el perfil está completo, va a validar código
+    token = generarTokenTemporal({ userId: usuario._id, step: 'totp' });
+  } else if (!estadoPerfil.perfilCompleto) {
+    // Si no tiene 2FA pero le falta perfil, va a completar datos
+    token = generarTokenTemporal({ userId: usuario._id, step: 'setup' });
+  } else {
+    // Solo si no tiene 2FA y ya tiene el perfil listo (usuario viejo sin seguridad)
+    token = generarTokenSesion({ userId: usuario._id, rol: estadoPerfil.rol });
+  }
 
   return {
     token,
     ...estadoPerfil,
+    // Agregamos los semáforos de 2FA
+    requiresSetup: !tiene2FA, 
+    // requiresTotp es true solo si ya tiene 2FA pero todavía no pasó por el check de los 6 números
+    requiresTotp: tiene2FA,
     usuario: {
       id: usuario._id,
       nombre: usuario.nombre,
