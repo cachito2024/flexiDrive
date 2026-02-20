@@ -598,3 +598,27 @@ export const getUserPublicInfo = async (req, res, next) => {
     next(error);
   }
 };
+
+export const getMyStatus = async (req, res, next) => {
+  try {
+    const status = await checkUserProfile(req.userId);
+    res.status(200).json(status);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicComisionistaProfile = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const usuario = await Usuario.findById(id).select('nombre apellido telefono email');
+    const comisionista = await Comisionista.findOne({ usuarioId: id }).select('verificado');
+    const vehiculo = await Vehiculo.findOne({ comisionistaId: id, verificado: true }).select('marca modelo patente color');
+
+    if (!usuario) return res.status(404).json({ message: "Comisionista no encontrado" });
+
+    res.status(200).json({ usuario, comisionista, vehiculo });
+  } catch (error) {
+    next(error);
+  }
+};

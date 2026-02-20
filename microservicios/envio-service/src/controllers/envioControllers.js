@@ -301,3 +301,67 @@ export const cancelarEnvio = async (req, res, next) => {
     next(error);
   }
 };
+
+
+export const getEnviosPorFecha = async (req, res, next) => {
+  try {
+    const { comisionistaId } = req.params;
+    const { fecha } = req.query; // Ejemplo: "2026-02-19"
+
+    if (!fecha) {
+      return res.status(400).json({ message: "La fecha es obligatoria" });
+    }
+
+    // Forzamos el inicio y fin del día en UTC exacto
+    // Esto evita que el desfasaje de Argentina (UTC-3) te traiga envíos del día anterior
+    const inicioDia = new Date(`${fecha}T00:00:00.000Z`);
+    const finDia = new Date(`${fecha}T23:59:59.999Z`);
+
+    const envios = await Envio.find({
+      comisionistaId: comisionistaId,
+      fecha_hora_retiro: { $gte: inicioDia, $lte: finDia },
+      estadoId: { $in: ['ASIGNADO', 'EN_RETIRO', 'EN_CAMINO'] }
+    });
+
+    res.status(200).json(envios);
+  } catch (error) {
+    console.error("Error en getEnviosPorFecha:", error);
+    next(error);
+  }
+};
+
+export const getEnvioById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const envio = await Envio.findById(id);
+    if (!envio) {
+      return res.status(404).json({ message: "Envío no encontrado" });
+    }
+    res.status(200).json(envio);
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+
+// Agregá esta función para actualizaciones técnicas desde otros micros
+export const patchEnvioTecnico = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    // Buscamos y actualizamos solo los campos que vengan en el body
+    // Esto permite que la IA guarde la polyline sin tocar lo demás
+    const envioActualizado = await Envio.findByIdAndUpdate(
+      id,
+      { $set: req.body }, 
+      { new: true }
+    );
+
+    if (!envioActualizado) return res.status(404).json({ message: "Envío no encontrado." });
+
+    res.status(200).json(envioActualizado);
+  } catch (error) {
+    next(error);
+  }
+};

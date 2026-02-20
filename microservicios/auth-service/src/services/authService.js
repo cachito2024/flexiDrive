@@ -66,40 +66,6 @@ export const registerUser = async (data) => {
   return { message: 'Usuario creado correctamente', usuarioId: usuario._id, otpauthUrl };
 };
 
-// Función interna de utilidad para chequear el estado real del usuario
-/* const checkUserProfile = async (userId) => {
-  const usuario = await Usuario.findById(userId);
-
-  // 1. Datos básicos
-  const tieneDatosBasicos = !!(usuario.dni && usuario.fecha_nacimiento);
-
-  // 2. Rol (Buscamos en la tabla oficial 'usuarioxrol')
-  const relacionRol = await UsuarioRol.findOne({ usuarioId: userId });
-  const tieneRol = !!relacionRol;
-
-  // 3. Si es comisionista, chequeamos sus datos bancarios
-  let datosComisionistaCompletos = false;
-  if (relacionRol && relacionRol.rolId === 'comisionista') {
-    const comi = await Comisionista.findOne({ usuarioId: userId });
-    const vehiculo = await Vehiculo.findOne({ comisionistaId: userId });
-    // Ahora chequeamos que tenga TODO: datos bancarios + fotos del DNI
-    datosComisionistaCompletos = !!(
-      comi?.alias &&
-      comi?.cbu &&
-      comi?.cuit &&
-      comi?.dniFrenteUrl &&
-      comi?.dniDorsoUrl
-
-    ); // Verificamos si registró al menos un vehículo
-    tieneVehiculo = !!vehiculo;
-  }
-  return {
-    perfilCompleto: tieneDatosBasicos && tieneRol,
-    datosComisionistaCompletos,
-    tieneVehiculo,
-    rol: relacionRol ? relacionRol.rolId : 'pendiente'
-  };
-}; */
 
 export const checkUserProfile = async (userId) => {
   const usuario = await Usuario.findById(userId);
@@ -392,25 +358,6 @@ export const googleLoginService = async (idToken) => {
   };
 };
 
-
-/* // SERVICIO PARA ACTUALIZAR DATOS BANCARIOS (CBU, CUIL, ALIAS)
-export const completeComisionistaService = async (userId, data) => {
-  // data ya viene validado por Zod desde el controller
-  const actualizado = await Comisionista.findOneAndUpdate(
-    { usuarioId: userId },
-    { ...data },
-    { new: true, 
-      upsert: true, // Si no existe, lo crea
-      runValidators: true // Esto asegura que Zod y Mongoose trabajen juntos
-    }
-  );
-
-  if (!actualizado) {
-    throw new Error("No se encontró el perfil de comisionista para este usuario");
-  }
-
-  return actualizado;
-}; */
 
 export const completeComisionistaService = async (userId, data) => {
   // data incluye: entidadBancaria, nroCuenta, tipoCuenta, alias, cbu, cuit, dniFrenteUrl, dniDorsoUrl
