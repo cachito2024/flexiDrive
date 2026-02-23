@@ -13,6 +13,8 @@ import UsuarioRol from '../models/userRoleModel.js';
 import Rol from '../models/roleModel.js';
 import Vehiculo from '../models/vehiculoModel.js';
 import Comisionista from '../models/comisionistaModel.js';
+// Verifica que esta línea esté en tus imports de authControllers.js
+import { generarTokenTemporal, generarTokenSesion } from '../utils/jwt.js';
 import bcrypt from 'bcrypt';
 
 export const register = async (req, res, next) => {
@@ -140,14 +142,14 @@ export const googleLogin = async (req, res, next) => {
 export const updateProfile = async (req, res, next) => {
   try {
     // 1. Validamos los datos con Zod (dni, fecha_nacimiento, rol)
-    const { dni, fecha_nacimiento, rol } = updateProfileSchema.parse(req.body);
+    const { dni, fecha_nacimiento, rol, telefono } = updateProfileSchema.parse(req.body);
 
     const userId = req.userId; // Extraído del authMiddleware
 
     // 2. Actualizamos datos básicos en la colección de Usuario
     const usuarioActualizado = await Usuario.findByIdAndUpdate(
       userId,
-      { dni, fecha_nacimiento },
+      { dni, fecha_nacimiento, telefono },
       { new: true }
     );
 
@@ -194,7 +196,8 @@ export const updateProfile = async (req, res, next) => {
       usuario: {
         id: usuarioActualizado._id,
         nombre: usuarioActualizado.nombre,
-        dni: usuarioActualizado.dni
+        dni: usuarioActualizado.dni,
+        telefono: usuarioActualizado.telefono // Opcional: devolverlo para confirmar
       }
     });
 
@@ -343,20 +346,27 @@ export const getMyFullProfile = async (req, res, next) => {
     if (!usuario) return res.status(404).json({ message: "Usuario no encontrado" });
 
     // 2. Buscamos el rol en la tabla intermedia
-    const relacion = await UsuarioRol.findOne({ usuarioId: req.userId });
-    const rol = relacion ? relacion.rolId : 'cliente';
+ /*    const relacion = await UsuarioRol.findOne({ usuarioId: req.userId });
+    const rol = relacion ? relacion.rolId : 'cliente'; */
+    // En lugar de buscar en la DB, usamos el rol que YA viene en el token
+    // El authMiddleware debería estar guardando 'req.rol'
+    const rol = req.rol || 'cliente';
 
     // 3. Si es comisionista, traemos sus datos específicos
     let datosComisionista = null;
+    let vehiculos = []; // <--- AGREGAMOS ESTO
     if (rol === 'comisionista') {
       datosComisionista = await Comisionista.findOne({ usuarioId: req.userId });
+      // Traemos sus vehículos (usamos find para que traiga la lista completa)
+      vehiculos = await Vehiculo.find({ comisionistaId: req.userId });
     }
 
     // 4. Devolvemos TODO en un solo objeto
     res.status(200).json({
       usuario,
       rol,
-      comisionista: datosComisionista
+      comisionista: datosComisionista,
+      vehiculos: vehiculos // <--- AHORA SÍ LLEGA AL FRONT
     });
   } catch (error) {
     next(error);
@@ -392,17 +402,18 @@ export const getMyFullProfile = async (req, res, next) => {
 export const updateFullProfile = async (req, res, next) => {
   try {
     const {
-      nombre, apellido, dni, fecha_nacimiento,
+      nombre, apellido, dni, fecha_nacimiento,telefono,
       passwordVieja, passwordNueva, // Campos de seguridad
       datosBancarios, // Campos de comisionista
       vehiculo // Para la tabla Vehiculo (marca, modelo, etc.)
     } = req.body;
 
     const userId = req.userId;
+    const rolActivo = req.rol; // <--- SACAMOS EL ROL DEL TOKEN 
 
-    // 1. Buscamos al usuario actual para comparar datos
+     // 1. Buscamos al usuario actual para comparar datos
     const usuarioActual = await Usuario.findById(userId);
-    if (!usuarioActual) return res.status(404).json({ message: "Usuario no encontrado" });
+    if (!usuarioActual) return res.status(404).json({ message: "Usuario no encontrado" }); 
 
     let updateUserData = {};
 
@@ -429,18 +440,20 @@ export const updateFullProfile = async (req, res, next) => {
     if (apellido) updateUserData.apellido = apellido;
     if (dni) updateUserData.dni = dni;
     if (fecha_nacimiento) updateUserData.fecha_nacimiento = fecha_nacimiento;
+    if (telefono) updateUserData.telefono = telefono;
 
     // Guardamos cambios en Usuario
     const usuarioActualizado = await Usuario.findByIdAndUpdate(
       userId,
       { $set: updateUserData },
-      { new: true }
+      { new: true, runValidators: true }
     );
 
     // 4. LÓGICA DE COMISIONISTA
-    const relacion = await UsuarioRol.findOne({ usuarioId: userId });
+/*     const relacion = await UsuarioRol.findOne({ usuarioId: userId });  */
 
-    if (relacion && relacion.rolId === 'admin') { // O 'comisionista', según tu ID
+   /*  if (relacion && relacion.rolId === 'admin') */ 
+   if (rolActivo === 'comisionista'){ // O 'comisionista', según tu ID
       // Si mandó datos bancarios, los actualizamos
       if (datosBancarios) {
         await Comisionista.findOneAndUpdate(
@@ -652,6 +665,108 @@ export const updateReputacionComisionista = async (req, res, next) => {
       message: "Reputación actualizada con éxito en el perfil técnico.",
       reputacion: perfilComisionista.reputacion 
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+//cambio rol
+/* export const switchRole = async (req, res, next) => {
+  try {
+    const { nuevoRol } = req.body; // Viene "cliente" o "comisionista" desde el Front
+    const userId = req.userId;
+    const rolActual = req.rol; // El rol que viene del authMiddleware (del token actual)
+
+    // 1. SI YA TIENE ESE ROL ACTIVO: No hacemos nada, que siga en el mapa.
+    if (rolActual === nuevoRol) {
+      return res.status(200).json({
+        message: `Ya te encuentras en modo ${nuevoRol}`,
+        requiresTotp: false,
+        perfilCompleto: true // Porque si ya estaba ahí, es que ya estaba ok
+      });
+    }
+
+    // 1. Validamos que sea un rol permitido
+    if (!['cliente', 'comisionista'].includes(nuevoRol)) {
+      throw new Error("Rol no válido");
+    }
+
+    // 2. Verificamos si ya tiene este rol en la tabla intermedia
+    // Si no lo tiene, se lo agregamos ahora mismo.
+    await UsuarioRol.findOneAndUpdate(
+      { usuarioId: userId, rolId: nuevoRol },
+      { usuarioId: userId, rolId: nuevoRol },
+      { upsert: true }
+    );
+
+    // 3. Generamos un Token Temporal de "paso de seguridad"
+    // Guardamos el 'targetRole' dentro del token para que verifyTotp sepa qué rol activar
+    const tokenTemporal = generarTokenTemporal({ 
+      userId, 
+      step: 'totp',
+      intent: 'switch_role', // Opcional: para saber qué está haciendo
+      targetRole: nuevoRol 
+    });
+
+    // 4. Respondemos al Front para que muestre los 6 dígitos
+    res.status(200).json({
+      message: `Iniciando cambio a modo ${nuevoRol}`,
+      requiresTotp: true,
+      token: tokenTemporal 
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+ */
+ 
+export const switchRole = async (req, res, next) => {
+  try {
+    const { nuevoRol } = req.body;
+    const userId = req.userId;
+    const rolActual = req.rol; // Extraído del token por el authMiddleware
+
+    // 1. VERIFICACIÓN DE ROL ACTIVO
+    // Si el usuario ya está operando con el rol que pide, no pedimos TOTP.
+    if (rolActual === nuevoRol) {
+      // Usamos el "Check Maestro" para ver si realmente tiene todo al día
+      const estado = await checkUserProfile(userId, nuevoRol); 
+      return res.status(200).json({
+        message: `Ya te encuentras en modo ${nuevoRol}`,
+        requiresTotp: false,
+        ...estado // Devuelve perfilCompleto, tieneVehiculo, etc.
+      });
+    }
+
+    // 2. VALIDACIÓN DE ROLES PERMITIDOS
+    if (!['cliente', 'comisionista'].includes(nuevoRol)) {
+      throw new Error("Rol no válido");
+    }
+
+    // 3. REGISTRO EN BASE DE DATOS (UPSERT)
+    // Si es la primera vez que elige el rol, se crea. Si ya existía, no hace nada.
+    await UsuarioRol.findOneAndUpdate(
+      { usuarioId: userId, rolId: nuevoRol },
+      { usuarioId: userId, rolId: nuevoRol },
+      { upsert: true }
+    );
+
+    // 4. GENERACIÓN DE TOKEN TEMPORAL PARA STEP-UP AUTH
+    // Este token es el que se usará en verifyTotp para emitir el token de sesión final.
+    const tokenTemporal = generarTokenTemporal({ 
+      userId, 
+      step: 'totp',
+      intent: 'switch_role',
+      targetRole: nuevoRol 
+    });
+
+    res.status(200).json({
+      message: `Iniciando cambio a modo ${nuevoRol}`,
+      requiresTotp: true,
+      token: tokenTemporal 
+    });
+
   } catch (error) {
     next(error);
   }
