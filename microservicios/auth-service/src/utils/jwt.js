@@ -4,7 +4,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretoflexidrive123';
 
 export const generarTokenTemporal = (payload) => {
   // Token de 5 minutos para el flujo de 2FA
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '5m' });
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '20m' });
 };
 
 export const generarTokenSesion = (payload) => {

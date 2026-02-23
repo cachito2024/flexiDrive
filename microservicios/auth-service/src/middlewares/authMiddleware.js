@@ -18,14 +18,15 @@ export const authMiddleware = (req, res, next) => {
     // 3. ¡ESTO ES CLAVE! Metemos el userId dentro del objeto 'req'
     // Así, cuando llegue a tu controlador 'updateProfile', el ID ya estará ahí.
     req.userId = decoded.userId; 
-    
+    req.rol = decoded.rol; // <--- AGREGÁ ESTA LÍNEA
+
     next(); // Seguimos al controlador
   } catch (error) {
     return res.status(401).json({ error: "Token inválido o expirado" });
   }
 };
 
-export const isAdmin = async (req, res, next) => {
+/* export const isAdmin = async (req, res, next) => {
   try {
     // BUSCAMOS EN LA TABLA INTERMEDIA
     const relacion = await UsuarioRol.findOne({ 
@@ -45,4 +46,14 @@ export const isAdmin = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+}; */
+
+export const isAdmin = (req, res, next) => {
+  // Ahora que el rol viene en el token, no hace falta buscar en la DB
+  if (req.rol !== 'admin') {
+    return res.status(403).json({ 
+      message: "Acceso denegado. Se requieren permisos de administrador." 
+    });
+  }
+  next();
 };

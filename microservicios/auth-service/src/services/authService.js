@@ -16,7 +16,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'mi_clave_secreta_temporal';
 export const registerUser = async (data) => {
   const {
     nombre, apellido, email, password, rol,
-    dni, fecha_nacimiento, telefono
+    dni, fecha_nacimiento,telefono
   } = data;
 
   // 1. Validaciones de existencia (Email único y Rol)
@@ -66,11 +66,11 @@ export const registerUser = async (data) => {
   return { message: 'Usuario creado correctamente', usuarioId: usuario._id, otpauthUrl };
 };
 
-
+/* 
 export const checkUserProfile = async (userId) => {
   const usuario = await Usuario.findById(userId);
   const relacionRol = await UsuarioRol.findOne({ usuarioId: userId });
-
+  
   // 1. Datos básicos del usuario (DNI y Fecha Nac son obligatorios para todos)
   const tieneDatosBasicos = !!(usuario?.dni && usuario?.fecha_nacimiento);
 
@@ -85,10 +85,10 @@ export const checkUserProfile = async (userId) => {
 
     // Verificamos datos bancarios y fotos
     datosComisionistaCompletos = !!(
-      comi?.alias &&
-      comi?.cbu &&
-      comi?.cuit &&
-      comi?.dniFrenteUrl &&
+      comi?.alias && 
+      comi?.cbu && 
+      comi?.cuit && 
+      comi?.dniFrenteUrl && 
       comi?.dniDorsoUrl
     );
 
@@ -103,7 +103,75 @@ export const checkUserProfile = async (userId) => {
     rol
   };
 };
+ */
+export const checkUserProfile = async (userId, rolSolicitado = null) => {
+  // 1. Buscamos los datos base del usuario
+  const usuario = await Usuario.findById(userId);
 
+  // 2. LÓGICA DE PRIORIDAD DE ROL
+  let relacionRol;
+
+  // 2. Buscamos la relación de rol. 
+  // Si nos pasan un rol específico (del switch), buscamos ese.
+  // Si no nos pasan nada (del login normal), buscamos el primero que tenga.
+ /*  const relacionRol = await UsuarioRol.findOne({ 
+    usuarioId: userId, 
+    rolId: rolSolicitado || { $exists: true } 
+  }); */
+
+  if (rolSolicitado) {
+    // Si viene del Switch, buscamos ese rol específico para ese usuario
+    relacionRol = await UsuarioRol.findOne({ 
+      usuarioId: userId, 
+      rolId: rolSolicitado 
+    });
+  } else {
+    // SI ES LOGIN NORMAL (rolSolicitado es null):
+    // Buscamos todos sus roles y los ordenamos por 'creado_en' (1 = ascendente, el más viejo primero)
+    // El .findOne() nos devolverá solo ese primer registro (el original)
+    relacionRol = await UsuarioRol.findOne({ usuarioId: userId }).sort({ creado_en: 1 });
+  }
+
+  // 3. El 'rolActivo' es el que mandó el Front, o el que encontramos en la DB, o 'pendiente'
+  const rolActivo = rolSolicitado || (relacionRol ? relacionRol.rolId : 'pendiente');
+
+  // 4. Datos básicos (DNI y Fecha son obligatorios para TODOS)
+  const tieneDatosBasicos = !!(usuario?.dni && usuario?.fecha_nacimiento && usuario?.telefono);
+
+  let datosComisionistaCompletos = false;
+  let tieneVehiculo = false;
+
+  // 5. Lógica específica según el rol que se está evaluando
+  if (rolActivo === 'comisionista') {
+    const comi = await Comisionista.findOne({ usuarioId: userId });
+    const vehiculo = await Vehiculo.findOne({ comisionistaId: userId });
+
+    // Verificamos datos bancarios y fotos (Lo que ya tenías)
+    datosComisionistaCompletos = !!(
+      comi?.alias &&
+      comi?.cbu &&
+      comi?.cuit &&
+      comi?.dniFrenteUrl &&
+      comi?.dniDorsoUrl
+    );
+
+    // Verificamos si registró al menos un vehículo
+    tieneVehiculo = !!vehiculo;
+  }
+
+  // 6. Retorno inteligente
+  return {
+    // Si es comisionista: necesita básicos + documentos + vehículo
+    // Si es cliente (o cualquier otro): solo necesita los básicos
+    perfilCompleto: rolActivo === 'comisionista' 
+      ? (tieneDatosBasicos && datosComisionistaCompletos && tieneVehiculo)
+      : (tieneDatosBasicos && rolActivo !== 'pendiente'),
+    
+    datosComisionistaCompletos, 
+    tieneVehiculo, 
+    rol: rolActivo 
+  };
+};
 // Login de usuario (Paso 1)
 export const loginUser = async ({ email, password }) => {
   const usuario = await Usuario.findOne({ email });
@@ -130,7 +198,7 @@ export const loginUser = async ({ email, password }) => {
 };
 
 // Verificación TOTP (Paso 2)
-export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
+/* export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
   // 1. Usamos SOLO nuestra función. No hace falta el try/catch acá porque 
   // verificarToken ya lanza el error si falla.
   const decoded = verificarToken(tempToken);
@@ -157,9 +225,11 @@ export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
 
   if (!verified) throw new Error('Código TOTP inválido');
   // --- OJO ACÁ: BUSCAMOS EL ROL PARA METERLO EN EL TOKEN ---
-  const relacion = await UsuarioRol.findOne({ usuarioId: usuario._id });
-  const miRol = relacion ? relacion.rolId : 'cliente'; // Default por las dudas
+ // const relacion = await UsuarioRol.findOne({ usuarioId: usuario._id });
+  //const miRol = relacion ? relacion.rolId : 'cliente'; // Default por las dudas
 
+  const miRol = decoded.targetRole || 'cliente';
+  
   // 4. ÉXITO: Generamos el token de sesión definitivo
   const token = generarTokenSesion({ userId: usuario._id, rol: miRol });
 
@@ -177,7 +247,51 @@ export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
       email: usuario.email
     }
   };
+}; */
+
+export const verifyTotp = async ({ tempToken, codigoIngresado }) => {
+  const decoded = verificarToken(tempToken);
+
+  if (decoded.step !== 'totp') {
+    throw new Error('Paso de verificación inválido');
+  }
+
+  const usuario = await Usuario.findById(decoded.userId);
+  if (!usuario) throw new Error('Usuario no encontrado');
+
+  const verified = speakeasy.totp.verify({
+    secret: usuario.totpSecret,
+    encoding: 'base32',
+    token: String(codigoIngresado).trim(),
+    window: 6 
+  });
+
+  if (!verified) throw new Error('Código TOTP inválido');
+
+  // PRIORIDAD: 
+  // 1. El rol que viene en el token (targetRole)
+  // 2. Si no hay nada (login inicial de usuario nuevo), 'cliente' por defecto.
+  const miRol = decoded.targetRole || 'cliente';
+
+  // Generamos el token de sesión definitivo con el rol ELEGIDO
+  const token = generarTokenSesion({ userId: usuario._id, rol: miRol });
+
+  // Ejecutamos el chequeo maestro pasando el rol activo
+  const estadoPerfil = await checkUserProfile(usuario._id, miRol);
+
+  return {
+    message: 'Login exitoso',
+    token,
+    ...estadoPerfil,
+    rol: miRol,
+    usuario: {
+      id: usuario._id,
+      nombre: usuario.nombre,
+      email: usuario.email
+    }
+  };
 };
+
 /* =========================
     HABILITAR TOTP (para usuarios existentes)
 ========================= */
@@ -316,7 +430,7 @@ export const resetTotp = async ({ userId }) => {
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-export const googleLoginService = async (idToken) => {
+/* export const googleLoginService = async (idToken) => {
   const ticket = await client.verifyIdToken({
     idToken,
     audience: process.env.GOOGLE_CLIENT_ID,
@@ -337,43 +451,70 @@ export const googleLoginService = async (idToken) => {
     console.log(`✨ Nuevo usuario creado: ${email}`);
   }
 
-
   // 3. Generamos el token de sesión nuestro (el de 24hs)
-  /* const token = generarTokenSesion({ userId: usuario._id }); */
+  const token = generarTokenSesion({ userId: usuario._id });
 
   // LLAMAMOS AL CHEQUEO MAESTRO
   const estadoPerfil = await checkUserProfile(usuario._id);
 
   /*  // 4. Chequeamos si faltan datos obligatorios para Flexi Drive
   const perfilCompleto = !!(usuario.dni && usuario.fecha_nacimiento && (usuario.rol === 'cliente' || usuario.rol === 'comisionista')); */
-  // LÓGICA DE SEGURIDAD PARA EL FRONT:
-  // Si ya tiene totpSecret, le pedimos verificación (requiresTotp).
-  // Si NO tiene totpSecret, le pedimos que lo configure (requiresSetup).
-  const tiene2FA = !!usuario.totpSecret;
 
-  // Si ya tiene todo (Perfil + 2FA), le damos el token de sesión.
-  // Si le falta algo, le damos un token temporal para que complete los pasos.
-  /* const token = tiene2FA && estadoPerfil.perfilCompleto
-    ? generarTokenSesion({ userId: usuario._id, rol: estadoPerfil.rol })
-    : generarTokenTemporal({ userId: usuario._id, step: tiene2FA ? 'totp' : 'setup' }); */
-    let token;
-  if (tiene2FA) {
-    // Si tiene 2FA, no importa si el perfil está completo, va a validar código
-    token = generarTokenTemporal({ userId: usuario._id, step: 'totp' });
-  } else if (!estadoPerfil.perfilCompleto) {
-    // Si no tiene 2FA pero le falta perfil, va a completar datos
-    token = generarTokenTemporal({ userId: usuario._id, step: 'setup' });
-  } else {
-    // Solo si no tiene 2FA y ya tiene el perfil listo (usuario viejo sin seguridad)
-    token = generarTokenSesion({ userId: usuario._id, rol: estadoPerfil.rol });
-  }
-
-  return {
+ /*  return {
     token,
     ...estadoPerfil,
-    // Agregamos los semáforos de 2FA
+    usuario: {
+      id: usuario._id,
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      email: usuario.email
+    }
+  };
+}; */ 
+
+/* export const googleLoginService = async (idToken,telefonoRecibido = null) => {
+  const ticket = await client.verifyIdToken({
+    idToken,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+  const { email, given_name, family_name } = ticket.getPayload();
+
+  let usuario = await Usuario.findOne({ email });
+
+  if (!usuario) {
+    // Si el usuario es nuevo y el Front nos mandó el teléfono:
+    if (!telefonoRecibido) {
+      throw new Error("El teléfono es obligatorio para completar el registro.");
+    }
+
+  if (!usuario) {
+    usuario = await Usuario.create({
+      nombre: given_name,
+      apellido: family_name,
+      email: email,
+      telefono: telefonoRecibido, // <--- GUARDAMOS EL DATO DEL MODAL
+      estado: 'activo'
+    });
+  };
+
+  // 1. Buscamos qué roles tiene y si el perfil está completo
+  // Pasamos null al principio para que checkUserProfile busque el rol por defecto
+  const estadoPerfil = await checkUserProfile(usuario._id);
+  
+  const tiene2FA = !!usuario.totpSecret;
+
+  // 2. LÓGICA DE TOKEN TEMPORAL (Seguridad)
+  // Siempre mandamos el targetRole para que el verifyTotp sepa qué rol dar al final
+  const token = generarTokenTemporal({ 
+    userId: usuario._id, 
+    step: tiene2FA ? 'totp' : 'setup',
+    targetRole: estadoPerfil.rol // <--- AQUÍ LO PASAMOS
+  });
+
+  return {
+    token, // Este es el token temporal (TOTP o Setup)
+    ...estadoPerfil,
     requiresSetup: !tiene2FA, 
-    // requiresTotp es true solo si ya tiene 2FA pero todavía no pasó por el check de los 6 números
     requiresTotp: tiene2FA,
     usuario: {
       id: usuario._id,
@@ -383,7 +524,54 @@ export const googleLoginService = async (idToken) => {
     }
   };
 };
+ */
 
+export const googleLoginService = async (idToken) => {
+  const ticket = await client.verifyIdToken({
+    idToken,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+  const { email, given_name, family_name } = ticket.getPayload();
+
+  let usuario = await Usuario.findOne({ email });
+
+  if (!usuario) {
+   
+    // Si el usuario es nuevo y SI tenemos el teléfono, lo creamos:
+    usuario = await Usuario.create({
+      nombre: given_name,
+      apellido: family_name,
+      email: email,
+      estado: 'activo'
+    });
+    console.log(`✨ Nuevo usuario Google creado: ${email}`);
+  }
+
+  // 1. Buscamos qué roles tiene y si el perfil está completo
+  const estadoPerfil = await checkUserProfile(usuario._id);
+  
+  const tiene2FA = !!usuario.totpSecret;
+
+  // 2. LÓGICA DE TOKEN TEMPORAL
+  const token = generarTokenTemporal({ 
+    userId: usuario._id, 
+    step: tiene2FA ? 'totp' : 'setup',
+    targetRole: estadoPerfil.rol 
+  });
+
+  return {
+    token,
+    ...estadoPerfil,
+    requiresSetup: !tiene2FA, 
+    requiresTotp: tiene2FA,
+    usuario: {
+      id: usuario._id,
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      email: usuario.email
+    }
+  };
+};
 
 export const completeComisionistaService = async (userId, data) => {
   // data incluye: entidadBancaria, nroCuenta, tipoCuenta, alias, cbu, cuit, dniFrenteUrl, dniDorsoUrl

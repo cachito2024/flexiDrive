@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData, approveComisionista, getMyFullProfile, updateFullProfile, disableAccount, adminDisableUser, registerVehiculo, getMyVehicles, approveVehiculo, getComisionistasHabilitados, getUserPublicInfo, getMyStatus, getPublicComisionistaProfile, updateReputacionComisionista} from '../controllers/authControllers.js';
+import { register, login, verifyTotp, enableTotp, confirmTotp, resetTotp, googleLogin, updateProfile, updateComisionistaData, approveComisionista, getMyFullProfile, updateFullProfile, disableAccount, adminDisableUser, registerVehiculo, getMyVehicles, approveVehiculo, getComisionistasHabilitados, getUserPublicInfo, getMyStatus, getPublicComisionistaProfile, updateReputacionComisionista, switchRole} from '../controllers/authControllers.js';
 import { authMiddleware, isAdmin } from '../middlewares/authMiddleware.js'; // <-- Importalo acá
 import { upload } from '../middlewares/uploadMiddleware.js'; // <-- 1. Importá el middleware de subida
 const router = Router();
@@ -53,5 +53,8 @@ router.get('/public-profile/:id', getPublicComisionistaProfile);
 
 // Actualizar reputación (Llamado desde el Micro de Calificaciones)
 router.patch('/update-reputacion/:id', authMiddleware, updateReputacionComisionista);
+
+//ruta role cambio
+router.post('/switch-role', authMiddleware, switchRole);
 
 export default router;
